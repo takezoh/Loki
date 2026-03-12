@@ -1,0 +1,3 @@
+# Label "repo:xxx" → リポジトリパスのマッピング
+# 形式: label=path
+# myproject=/home/user/dev/myproject

@@ -1,0 +1,7 @@
+logs/
+lock/
+.venv/
+__pycache__/
+*.pyc
+config/forge.env
+config/repos.conf
