@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Linear ポーリング: 指定ステータスの Issue を JSON 配列で出力する。"""
+"""Linear polling: output issues with a given status as a JSON array."""
 
 import json
 import os
@@ -138,11 +138,11 @@ def is_ready(node: dict) -> bool:
 
 
 def detect_dependency_cycle(nodes: list[dict]) -> list[str] | None:
-    """サブ Issue 間の blocks リレーションにサイクルがあれば、そのサイクル上の identifier リストを返す。"""
+    """Return identifier list of the cycle if one exists in blocks relations among sub-issues."""
     id_set = {n["id"] for n in nodes}
     id_to_ident = {n["id"]: n["identifier"] for n in nodes}
 
-    # adjacency: blocker -> blocked (blocks 方向)
+    # adjacency: blocker -> blocked
     graph: dict[str, list[str]] = {n["id"]: [] for n in nodes}
     for node in nodes:
         for rel in node.get("relations", {}).get("nodes", []):

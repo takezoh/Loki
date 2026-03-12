@@ -1,39 +1,39 @@
-# Linear ステータス設計 & AI エージェントワークフロー
+# Linear Status Design & AI Agent Workflow
 
-## ワークフロー概要
+## Workflow Overview
 
 ```
-1. 人間が親 Issue を作成（Backlog）
-        ↓ Issue Status を Planning に変更
-2. エージェントが Issue を MCP で取得・分析
-3. エージェントが Sub-issue を作成（計画立案）
-4. エージェントが Status を Pending Approval に変更
-        ↓ Slack 通知 → 人間が計画を確認
-5. 人間が Status を Implementing に変更（承認）
+1. Human creates parent issue (Backlog)
+        ↓ Change issue status to Planning
+2. Agent fetches and analyzes issue via MCP
+3. Agent creates sub-issues (planning)
+4. Agent changes status to Pending Approval
+        ↓ Slack notification → human reviews plan
+5. Human changes status to Implementing (approval)
         ↓
-6. エージェントが Sub-issue を順次実装・PR 作成
-7. エージェントが Status を In Review に変更
-        ↓ Slack 通知 → 人間が PR をレビュー・マージ
-8. 人間が Status を Done に変更
+6. Agent implements sub-issues sequentially, creates PRs
+7. Agent changes status to In Review
+        ↓ Slack notification → human reviews and merges PRs
+8. Human changes status to Done
         ↓
-9. 全 Sub-issue が Done → 親 Issue も自動 Done
+9. All sub-issues Done → parent issue auto-Done
 ```
 
 ---
 
-## Issue Status 設計
+## Issue Status Design
 
-Team 単位でカスタマイズ（Settings → Teams → Issue statuses & automations）
+Customized per team (Settings → Teams → Issue statuses & automations)
 
-| Status | カテゴリ | 担当 | 意味 |
-|--------|---------|------|------|
-| `Backlog` | Backlog | 人間 | 未着手・積み残し |
-| `Planning` | Started | エージェント | Sub-issue 立案中 |
-| `Pending Approval` | Started | 人間 | 計画承認待ち |
-| `Implementing` | Started | エージェント | 実装中 |
-| `In Review` | Started | 人間 | PR レビュー中 |
-| `Done` | Completed | 自動 | 完了 |
-| `Cancelled` | Cancelled | 人間 | 中止 |
+| Status | Category | Actor | Description |
+|--------|----------|-------|-------------|
+| `Backlog` | Backlog | Human | Not started |
+| `Planning` | Started | Agent | Creating sub-issues |
+| `Pending Approval` | Started | Human | Awaiting plan approval |
+| `Implementing` | Started | Agent | Building |
+| `In Review` | Started | Human | PR under review |
+| `Done` | Completed | Auto | Completed |
+| `Cancelled` | Cancelled | Human | Cancelled |
 
 ```
 Backlog → Planning → Pending Approval → Implementing → In Review → Done
@@ -42,16 +42,16 @@ Backlog → Planning → Pending Approval → Implementing → In Review → Don
 
 ---
 
-## Project Status 設計
+## Project Status Design
 
-ロードマップ・進捗の大枠を人間が管理する。エージェントは操作しない。
+Humans manage the roadmap and high-level progress. Agents do not modify project status.
 
-| Status | 意味 |
-|--------|------|
-| `Planned` | 計画済み・未着手 |
-| `In Progress` | 配下の Issue が進行中 |
-| `Completed` | 全 Issue 完了 |
-| `Cancelled` | 中止 |
+| Status | Description |
+|--------|-------------|
+| `Planned` | Planned, not started |
+| `In Progress` | Issues in progress |
+| `Completed` | All issues completed |
+| `Cancelled` | Cancelled |
 
 ```
 Planned → In Progress → Completed
@@ -60,31 +60,31 @@ Planned → In Progress → Completed
 
 ---
 
-## 役割の分離
+## Separation of Concerns
 
-| レイヤー | 用途 | 操作者 |
-|---------|------|--------|
-| Project Status | ロードマップ・進捗の大枠 | 人間 |
-| Issue Status | エージェントと人間の作業フロー | エージェント + 人間 |
-| Sub-issue | 実装タスクの細分化 | エージェント |
-| Label | 性質の分類（repo:xxx, Bug, Feature など） | エージェント + 人間 |
-
----
-
-## Webhook トリガー設計
-
-| Issue Status 変化 | 検知 | アクション |
-|------------------|------|-----------|
-| `Backlog` → `Planning` | Webhook | エージェントが計画開始 |
-| `Planning` → `Pending Approval` | Webhook | 人間に Slack 通知 |
-| `Pending Approval` → `Implementing` | Webhook | エージェントが実装開始 |
-| `Implementing` → `In Review` | Webhook | 人間に Slack 通知 |
+| Layer | Purpose | Operator |
+|-------|---------|----------|
+| Project Status | Roadmap, high-level progress | Human |
+| Issue Status | Agent-human workflow | Agent + Human |
+| Sub-issue | Implementation task breakdown | Agent |
+| Label | Classification (repo:xxx, Bug, Feature, etc.) | Agent + Human |
 
 ---
 
-## Sub-issue 自動化設定
+## Webhook Trigger Design
 
-Settings → Teams → Workflow で以下を有効化する。
+| Issue Status Change | Detection | Action |
+|---------------------|-----------|--------|
+| `Backlog` → `Planning` | Webhook | Agent starts planning |
+| `Planning` → `Pending Approval` | Webhook | Slack notification to human |
+| `Pending Approval` → `Implementing` | Webhook | Agent starts implementation |
+| `Implementing` → `In Review` | Webhook | Slack notification to human |
 
-- **全 Sub-issue が Done になったら親 Issue も自動 Done**
-- **親 Issue が Cancelled になったら全 Sub-issue も自動 Cancelled**
+---
+
+## Sub-issue Automation Settings
+
+Enable the following in Settings → Teams → Workflow:
+
+- **Auto-complete parent issue when all sub-issues are Done**
+- **Auto-cancel all sub-issues when parent issue is Cancelled**

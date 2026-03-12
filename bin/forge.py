@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""forge メインエントリポイント: Linear ポーリング → Issue 振り分け → バックグラウンド実行。"""
+"""forge main entry point: Linear polling → issue dispatch → background execution."""
 
 import json
 import os
@@ -104,7 +104,7 @@ def main():
 
     processes: list[subprocess.Popen] = []
 
-    # Planning: 親 Issue を直接ディスパッチ
+    # Planning: dispatch parent issues directly
     if planning_issues:
         log(f"{len(planning_issues)} planning issue(s) found")
         for issue in planning_issues:
@@ -112,7 +112,7 @@ def main():
             if p:
                 processes.append(p)
 
-    # Implementing: 親 Issue → サブ Issue を依存順にディスパッチ
+    # Implementing: parent issue → dispatch ready sub-issues by dependency order
     if implementing_issues:
         log(f"{len(implementing_issues)} implementing parent issue(s) found")
         for parent in implementing_issues:

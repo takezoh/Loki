@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Issue 単位で claude CLI を実行する。"""
+"""Execute claude CLI per issue."""
 
 import json
 import os
@@ -81,7 +81,7 @@ def mark_failed(env: dict, issue_id: str, log_file: Path):
             "--max-budget-usd", "0.03",
             "--model", env["FORGE_MODEL"],
             "--allowedTools", "mcp__linear-server__save_issue,mcp__linear-server__save_comment",
-            "-p", f'Linear の Issue ID {issue_id} のステータスを "Failed" に変更して。また、コメントで実行が失敗したことを報告して。ログの末尾:\n{tail}',
+            "-p", f'Change the status of Linear issue ID {issue_id} to "Failed". Also post a comment reporting the execution failure. Log tail:\n{tail}',
         ],
         capture_output=True, text=True, env=run_env,
     )
@@ -118,7 +118,7 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str, parent
         worktree_dir = worktree_base / repo.name / issue_identifier
         worktree_dir.parent.mkdir(parents=True, exist_ok=True)
 
-        # worktree 作成: 新規ブランチ or 既存ブランチ
+        # Create worktree: new branch or existing branch
         ret = subprocess.run(
             ["git", "-C", str(repo), "worktree", "add", str(worktree_dir), "-b", issue_identifier, "main"],
             capture_output=True,

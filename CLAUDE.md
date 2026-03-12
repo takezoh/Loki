@@ -1,17 +1,17 @@
 # forge
 
-Linear 駆動 AI エージェント。Issue のステータス変更をトリガーに計画立案と実装を自動実行する。
+Linear-driven AI agent. Automatically plans and implements tasks triggered by issue status changes.
 
-## 構成
+## Structure
 
-- `bin/forge.sh` — cron エントリポイント。ポーリング → Issue 振り分け → バックグラウンド実行
-- `bin/poll.sh` — claude CLI + Linear MCP で指定ステータスの Issue を JSON 取得
-- `bin/run-claude.sh` — Issue 単位で claude CLI を実行（planning / implementing）
-- `prompts/` — 各フェーズのプロンプトテンプレート
-- `config/forge.env` — 設定値
-- `config/repos.conf` — Label → リポジトリパスのマッピング
+- `bin/forge.py` — Main entry point. Polling → issue dispatch → background execution
+- `bin/poll.py` — Linear GraphQL polling for issues by status
+- `bin/run_claude.py` — Per-issue claude CLI execution (planning / implementing)
+- `prompts/` — Prompt templates for each phase
+- `config/forge.env` — Configuration values
+- `config/repos.conf` — Label → repository path mapping
 
-## フロー
+## Flow
 
-1. Planning: 親 Issue → コード調査 → Sub-issue 分割 → Pending Approval
-2. Implementing: Sub-issue → worktree → 実装 → PR → In Review
+1. Planning: Parent issue → code investigation → sub-issue creation → Pending Approval
+2. Implementing: Parent issue → sub-issue dependency resolution → conductor pattern (implementer + reviewer) → PR → In Review

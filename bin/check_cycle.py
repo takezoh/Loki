@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""親 Issue のサブ Issue 間の依存関係にサイクルがないか検証する。"""
+"""Verify there are no dependency cycles among sub-issues of a parent issue."""
 
 import sys
 from pathlib import Path
