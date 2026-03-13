@@ -9,29 +9,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-FORGE_ROOT = Path(__file__).resolve().parent.parent
+from common import FORGE_ROOT, load_env, detect_default_branch
+from constants import (STATE_PLANNING, STATE_IMPLEMENTING,
+                       STATE_PLAN_CHANGES_REQUESTED, STATE_CHANGES_REQUESTED,
+                       STATE_IN_PROGRESS, STATE_IN_REVIEW, STATE_DONE)
+from poll import poll, fetch_sub_issues, fetch_issue_detail, update_issue_state
+
 sys.path.insert(0, str(FORGE_ROOT / "bin"))
 
-from poll import load_env, poll, fetch_sub_issues, fetch_issue_detail, update_issue_state
-
-
-def detect_default_branch(repo_path: str) -> str:
-    ret = subprocess.run(
-        ["git", "-C", repo_path, "symbolic-ref", "refs/remotes/origin/HEAD"],
-        capture_output=True, text=True,
-    )
-    if ret.returncode != 0:
-        subprocess.run(
-            ["git", "-C", repo_path, "remote", "set-head", "origin", "--auto"],
-            capture_output=True,
-        )
-        ret = subprocess.run(
-            ["git", "-C", repo_path, "symbolic-ref", "refs/remotes/origin/HEAD"],
-            capture_output=True, text=True,
-        )
-    if ret.returncode == 0:
-        return ret.stdout.strip().split("/")[-1]
-    return "main"
 
 def load_repos() -> dict[str, str]:
     repos = {}
@@ -109,7 +94,6 @@ def generate_pr_body(parent_id: str, parent_identifier: str, repo_path: str,
                 title = line.removeprefix("TITLE:").strip()
                 break
         body = parts[1].strip()
-        # Strip wrapping code fences if present
         if body.startswith("```"):
             body = body.split("\n", 1)[1] if "\n" in body else body
         if body.endswith("```"):
@@ -146,9 +130,8 @@ def create_parent_pr(parent_identifier: str, parent_title: str, repo_path: str,
         pr_lock.unlink(missing_ok=True)
         return
 
-    update_issue_state(parent_id, "In Review")
+    update_issue_state(parent_id, STATE_IN_REVIEW)
 
-    # Clean up parent worktree
     parent_worktree = Path(env["FORGE_WORKTREE_DIR"]) / Path(repo_path).name / parent_identifier
     if parent_worktree.exists():
         subprocess.run(
@@ -210,20 +193,19 @@ def main():
     log("=== forge started ===")
 
     log("Polling Planning issues...")
-    planning_issues = poll("Planning")
+    planning_issues = poll(STATE_PLANNING)
 
     log("Polling Implementing issues...")
-    implementing_issues = poll("Implementing")
+    implementing_issues = poll(STATE_IMPLEMENTING)
 
     log("Polling Plan Changes Requested issues...")
-    plan_review_issues = poll("Plan Changes Requested")
+    plan_review_issues = poll(STATE_PLAN_CHANGES_REQUESTED)
 
     log("Polling Changes Requested issues...")
-    review_issues = poll("Changes Requested")
+    review_issues = poll(STATE_CHANGES_REQUESTED)
 
     processes: list[subprocess.Popen] = []
 
-    # Planning: dispatch parent issues directly
     if planning_issues:
         log(f"{len(planning_issues)} planning issue(s) found")
         for issue in planning_issues:
@@ -231,7 +213,6 @@ def main():
             if p:
                 processes.append(p)
 
-    # Implementing: parent issue → dispatch ready sub-issues by dependency order
     if implementing_issues:
         log(f"{len(implementing_issues)} implementing parent issue(s) found")
         for parent in implementing_issues:
@@ -255,7 +236,6 @@ def main():
                 log(f"  Skip {parent_identifier} (dependency cycle: {' -> '.join(result['cycle'])})")
                 continue
 
-            # Create parent branch if it doesn't exist
             ret = subprocess.run(
                 ["git", "-C", repo_path, "rev-parse", "--verify", parent_identifier],
                 capture_output=True,
@@ -271,7 +251,6 @@ def main():
                     continue
                 log(f"  Created parent branch: {parent_identifier} (from {default_branch})")
 
-            # Create parent worktree (merge target)
             parent_worktree = Path(env["FORGE_WORKTREE_DIR"]) / Path(repo_path).name / parent_identifier
             if not parent_worktree.exists():
                 parent_worktree.parent.mkdir(parents=True, exist_ok=True)
@@ -282,7 +261,7 @@ def main():
                 log(f"  Created parent worktree: {parent_worktree}")
 
             ready = [s for s in sub_issues if s.get("ready")]
-            done = [s for s in sub_issues if s.get("state") in ("Done", "In Review")]
+            done = [s for s in sub_issues if s.get("state") in (STATE_DONE, STATE_IN_REVIEW)]
             log(f"  {parent_identifier}: {len(sub_issues)} sub-issues, {len(ready)} ready, {len(done)} done")
 
             for sub in ready:
@@ -295,16 +274,14 @@ def main():
                 p = dispatch_issue("implementing", sub_issue, lock_dir, max_concurrent, repos,
                                    parent_id=parent_id, parent_identifier=parent_identifier)
                 if p:
-                    update_issue_state(sub["id"], "In Progress")
+                    update_issue_state(sub["id"], STATE_IN_PROGRESS)
                     processes.append(p)
 
-            # Check if all sub-issues are done → create parent PR
-            all_done = all(s.get("state") == "Done" for s in sub_issues) and len(sub_issues) > 0
+            all_done = all(s.get("state") == STATE_DONE for s in sub_issues) and len(sub_issues) > 0
             if all_done:
                 create_parent_pr(parent_identifier, parent["title"], repo_path,
                                  parent_id, lock_dir, env, sub_issues=sub_issues)
 
-    # Plan Review: dispatch parent issues directly
     if plan_review_issues:
         log(f"{len(plan_review_issues)} plan review issue(s) found")
         for issue in plan_review_issues:
@@ -312,7 +289,6 @@ def main():
             if p:
                 processes.append(p)
 
-    # Review: dispatch parent issues directly (PR already exists)
     if review_issues:
         log(f"{len(review_issues)} review feedback issue(s) found")
         for issue in review_issues:

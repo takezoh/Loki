@@ -2,46 +2,12 @@
 """Linear polling: output issues with a given status as a JSON array."""
 
 import json
-import os
 import sys
 import urllib.request
 
-def load_env():
-    config_dir = os.path.join(os.path.dirname(__file__), "..", "config")
+from common import load_env, get_api_key, parse_labels
+from constants import TERMINAL_STATES, STATE_DONE, STATE_TODO
 
-    with open(os.path.join(config_dir, "settings.json")) as f:
-        cfg = json.load(f)
-
-    env = {
-        "FORGE_TEAM": cfg["team"],
-        "FORGE_TEAM_ID": cfg["team_id"],
-        "FORGE_MODEL": cfg["model"]["default"],
-        "FORGE_LOG_DIR": cfg["log_dir"],
-        "FORGE_LOCK_DIR": cfg["lock_dir"],
-        "FORGE_WORKTREE_DIR": cfg["worktree_dir"],
-        "FORGE_MAX_CONCURRENT": str(cfg["max_concurrent"]),
-        "FORGE_LOCK_TIMEOUT_MIN": str(cfg["lock_timeout_min"]),
-    }
-    for phase, val in cfg.get("budget", {}).items():
-        env[f"FORGE_BUDGET_{phase.upper()}"] = str(val)
-    for phase, val in cfg.get("max_turns", {}).items():
-        env[f"FORGE_MAX_TURNS_{phase.upper()}"] = str(val)
-    for phase, val in cfg.get("model", {}).items():
-        if phase == "default":
-            continue
-        env[f"FORGE_MODEL_{phase.upper()}"] = str(val)
-
-    secrets_path = os.path.join(config_dir, "secrets.env")
-    if os.path.exists(secrets_path):
-        with open(secrets_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                k, _, v = line.partition("=")
-                env[k] = v.strip('"').strip("'")
-
-    return env
 
 def graphql(api_key: str, query: str, variables: dict = None) -> dict:
     payload = json.dumps({"query": query, "variables": variables or {}}).encode()
@@ -79,9 +45,10 @@ query($teamId: ID!, $stateName: String!) {
 }
 """
 
-def poll(status: str) -> list[dict]:
-    env = load_env()
-    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+def poll(status: str, env=None) -> list[dict]:
+    if env is None:
+        env = load_env()
+    api_key = get_api_key(env)
     if not api_key:
         print("LINEAR_API_KEY not set", file=sys.stderr)
         sys.exit(1)
@@ -91,11 +58,7 @@ def poll(status: str) -> list[dict]:
 
     issues = []
     for node in data.get("data", {}).get("issues", {}).get("nodes", []):
-        labels = []
-        for label in node.get("labels", {}).get("nodes", []):
-            parent = label.get("parent")
-            name = label["name"]
-            labels.append(f"{parent['name']}:{name}" if parent else name)
+        labels = parse_labels(node.get("labels", {}).get("nodes", []))
         issues.append({
             "id": node["id"],
             "identifier": node["identifier"],
@@ -148,8 +111,6 @@ query($parentId: String!) {
 }
 """
 
-TERMINAL_STATES = {"In Progress", "In Review", "Done", "Cancelled", "Failed"}
-
 
 UPDATE_STATE_MUTATION = """
 mutation($issueId: String!, $stateId: String!) {
@@ -177,15 +138,17 @@ mutation($issueId: String!, $body: String!) {
 """
 
 
-def create_comment(issue_id: str, body: str):
-    env = load_env()
-    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+def create_comment(issue_id: str, body: str, env=None):
+    if env is None:
+        env = load_env()
+    api_key = get_api_key(env)
     graphql(api_key, CREATE_COMMENT_MUTATION, {"issueId": issue_id, "body": body})
 
 
-def update_issue_state(issue_id: str, state_name: str):
-    env = load_env()
-    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+def update_issue_state(issue_id: str, state_name: str, env=None):
+    if env is None:
+        env = load_env()
+    api_key = get_api_key(env)
     team_id = env["FORGE_TEAM_ID"]
 
     data = graphql(api_key, WORKFLOW_STATES_QUERY, {"teamId": team_id})
@@ -205,7 +168,7 @@ def is_ready(node: dict) -> bool:
     for rel in node.get("inverseRelations", {}).get("nodes", []):
         if rel["type"] == "blocks":
             blocker_state = rel.get("issue", {}).get("state", {}).get("name", "")
-            if blocker_state != "Done":
+            if blocker_state != STATE_DONE:
                 return False
     return True
 
@@ -215,7 +178,6 @@ def detect_dependency_cycle(nodes: list[dict]) -> list[str] | None:
     id_set = {n["id"] for n in nodes}
     id_to_ident = {n["id"]: n["identifier"] for n in nodes}
 
-    # adjacency: blocker -> blocked
     graph: dict[str, list[str]] = {n["id"]: [] for n in nodes}
     for node in nodes:
         for rel in node.get("relations", {}).get("nodes", []):
@@ -257,9 +219,10 @@ def detect_dependency_cycle(nodes: list[dict]) -> list[str] | None:
     return None
 
 
-def fetch_sub_issues(parent_id: str) -> dict:
-    env = load_env()
-    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+def fetch_sub_issues(parent_id: str, env=None) -> dict:
+    if env is None:
+        env = load_env()
+    api_key = get_api_key(env)
     if not api_key:
         print("LINEAR_API_KEY not set", file=sys.stderr)
         sys.exit(1)
@@ -271,11 +234,7 @@ def fetch_sub_issues(parent_id: str) -> dict:
     sub_issues = []
     for node in nodes:
         state_name = node.get("state", {}).get("name", "")
-        labels = []
-        for label in node.get("labels", {}).get("nodes", []):
-            p = label.get("parent")
-            name = label["name"]
-            labels.append(f"{p['name']}:{name}" if p else name)
+        labels = parse_labels(node.get("labels", {}).get("nodes", []))
 
         sub_issues.append({
             "id": node["id"],
@@ -330,16 +289,13 @@ query($issueId: String!) {
 """
 
 
-def fetch_issue_detail(issue_id: str) -> dict:
-    env = load_env()
-    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+def fetch_issue_detail(issue_id: str, env=None) -> dict:
+    if env is None:
+        env = load_env()
+    api_key = get_api_key(env)
     data = graphql(api_key, ISSUE_DETAIL_QUERY, {"issueId": issue_id})
     issue = data.get("data", {}).get("issue", {})
-    labels = []
-    for label in issue.get("labels", {}).get("nodes", []):
-        p = label.get("parent")
-        name = label["name"]
-        labels.append(f"{p['name']}:{name}" if p else name)
+    labels = parse_labels(issue.get("labels", {}).get("nodes", []))
     return {
         "id": issue.get("id", ""),
         "identifier": issue.get("identifier", ""),
@@ -349,22 +305,24 @@ def fetch_issue_detail(issue_id: str) -> dict:
     }
 
 
-def fetch_issue_comments(issue_id: str) -> list[dict]:
-    env = load_env()
-    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+def fetch_issue_comments(issue_id: str, env=None) -> list[dict]:
+    if env is None:
+        env = load_env()
+    api_key = get_api_key(env)
     data = graphql(api_key, ISSUE_COMMENTS_QUERY, {"issueId": issue_id})
     comments = data.get("data", {}).get("issue", {}).get("comments", {}).get("nodes", [])
     return [{"body": c["body"], "user": c.get("user", {}).get("name", ""), "createdAt": c["createdAt"]} for c in comments]
 
 
-def fetch_todo_state_id(team_id: str = "") -> str:
-    env = load_env()
-    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+def fetch_todo_state_id(team_id: str = "", env=None) -> str:
+    if env is None:
+        env = load_env()
+    api_key = get_api_key(env)
     if not team_id:
         team_id = env["FORGE_TEAM_ID"]
     data = graphql(api_key, WORKFLOW_STATES_QUERY, {"teamId": team_id})
     states = data.get("data", {}).get("workflowStates", {}).get("nodes", [])
-    return next((s["id"] for s in states if s["name"] == "Todo"), "")
+    return next((s["id"] for s in states if s["name"] == STATE_TODO), "")
 
 
 if __name__ == "__main__":

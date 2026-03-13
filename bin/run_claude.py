@@ -8,30 +8,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-FORGE_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(FORGE_ROOT / "bin"))
-
+from common import FORGE_ROOT, load_env, detect_default_branch
+from constants import (STATE_PENDING_APPROVAL, STATE_DONE, STATE_IN_REVIEW,
+                       STATE_FAILED, PHASE_PLANNING, PHASE_IMPLEMENTING,
+                       PHASE_REVIEW, PHASE_PLAN_REVIEW)
 from poll import (update_issue_state, create_comment, fetch_issue_detail,
                  fetch_issue_comments, fetch_todo_state_id, fetch_sub_issues)
 
-
-def detect_default_branch(repo_path: str) -> str:
-    ret = subprocess.run(
-        ["git", "-C", repo_path, "symbolic-ref", "refs/remotes/origin/HEAD"],
-        capture_output=True, text=True,
-    )
-    if ret.returncode != 0:
-        subprocess.run(
-            ["git", "-C", repo_path, "remote", "set-head", "origin", "--auto"],
-            capture_output=True,
-        )
-        ret = subprocess.run(
-            ["git", "-C", repo_path, "symbolic-ref", "refs/remotes/origin/HEAD"],
-            capture_output=True, text=True,
-        )
-    if ret.returncode == 0:
-        return ret.stdout.strip().split("/")[-1]
-    return "main"
+sys.path.insert(0, str(FORGE_ROOT / "bin"))
 
 SANDBOX_SETTINGS = {
     "sandbox": {
@@ -62,6 +46,28 @@ SANDBOX_SETTINGS = {
     },
 }
 
+DISALLOWED_TOOLS_MAP = {
+    PHASE_PLANNING: [
+        "mcp__linear-server__get_issue",
+        "mcp__linear-server__list_issue_statuses",
+    ],
+    PHASE_IMPLEMENTING: [
+        "mcp__linear-server__get_issue",
+        "mcp__linear-server__list_documents",
+        "mcp__linear-server__list_comments",
+        "mcp__linear-server__save_issue",
+    ],
+    PHASE_PLAN_REVIEW: [
+        "mcp__linear-server__get_issue",
+        "mcp__linear-server__list_issue_statuses",
+    ],
+    PHASE_REVIEW: [
+        "mcp__linear-server__save_issue",
+        "mcp__linear-server__get_issue",
+        "mcp__linear-server__list_documents",
+    ],
+}
+
 
 def setup_sandbox(work_dir: Path, log_dir: Path, extra_write_paths: list[str] | None = None):
     settings = json.loads(json.dumps(SANDBOX_SETTINGS))
@@ -76,46 +82,7 @@ def setup_sandbox(work_dir: Path, log_dir: Path, extra_write_paths: list[str] | 
     settings_file.write_text(json.dumps(settings, indent=2))
 
 
-def load_env():
-    config_dir = FORGE_ROOT / "config"
-
-    with open(config_dir / "settings.json") as f:
-        cfg = json.load(f)
-
-    env = {
-        "FORGE_TEAM": cfg["team"],
-        "FORGE_TEAM_ID": cfg["team_id"],
-        "FORGE_MODEL": cfg["model"]["default"],
-        "FORGE_LOG_DIR": cfg["log_dir"],
-        "FORGE_LOCK_DIR": cfg["lock_dir"],
-        "FORGE_WORKTREE_DIR": cfg["worktree_dir"],
-        "FORGE_MAX_CONCURRENT": str(cfg["max_concurrent"]),
-        "FORGE_LOCK_TIMEOUT_MIN": str(cfg["lock_timeout_min"]),
-    }
-    for phase, val in cfg.get("budget", {}).items():
-        env[f"FORGE_BUDGET_{phase.upper()}"] = str(val)
-    for phase, val in cfg.get("max_turns", {}).items():
-        env[f"FORGE_MAX_TURNS_{phase.upper()}"] = str(val)
-    for phase, val in cfg.get("model", {}).items():
-        if phase == "default":
-            continue
-        env[f"FORGE_MODEL_{phase.upper()}"] = str(val)
-
-    secrets_path = config_dir / "secrets.env"
-    if secrets_path.exists():
-        with open(secrets_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                k, _, v = line.partition("=")
-                env[k] = v.strip('"').strip("'")
-
-    return env
-
-
 def fetch_pr_review_comments(branch: str, repo_path: str) -> str:
-    # Get PR number
     pr_view = subprocess.run(
         ["gh", "pr", "view", branch, "--json", "number,reviews,comments"],
         capture_output=True, text=True, cwd=repo_path,
@@ -127,7 +94,6 @@ def fetch_pr_review_comments(branch: str, repo_path: str) -> str:
     pr_number = pr_data["number"]
     parts = []
 
-    # Top-level review comments
     for review in pr_data.get("reviews", []):
         body = review.get("body", "").strip()
         if body:
@@ -135,15 +101,12 @@ def fetch_pr_review_comments(branch: str, repo_path: str) -> str:
             author = review.get("author", {}).get("login", "unknown")
             parts.append(f"[review ({state}) by {author}]\n{body}")
 
-    # Top-level PR comments
     for comment in pr_data.get("comments", []):
         body = comment.get("body", "").strip()
         if body:
             author = comment.get("author", {}).get("login", "unknown")
             parts.append(f"[comment by {author}]\n{body}")
 
-    # Inline review comments (file-level)
-    # Get repo owner/name from git remote
     remote = subprocess.run(
         ["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
         capture_output=True, text=True, cwd=repo_path,
@@ -172,20 +135,12 @@ def mark_failed(issue_id: str, log_file: Path):
         lines = log_file.read_text().splitlines()
         tail = "\n".join(lines[-20:])
 
-    update_issue_state(issue_id, "Failed")
+    update_issue_state(issue_id, STATE_FAILED)
     body = f"Execution failed.\n\n```\n{tail}\n```" if tail else "Execution failed."
     create_comment(issue_id, body)
 
-def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
-        parent_issue_id: str = "", parent_identifier: str = ""):
-    env = load_env()
-    log_dir = Path(env["FORGE_LOG_DIR"])
-    lock_dir = Path(env["FORGE_LOCK_DIR"])
-    log_file = log_dir / f"{issue_identifier}-{datetime.now():%Y%m%d-%H%M%S}.log"
-    lock_file = lock_dir / f"{issue_id}.lock"
-    worktree_dir = None
-    worktree_base = Path(env["FORGE_WORKTREE_DIR"])
 
+def prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id, parent_identifier, repo_path, env):
     prompt_file = FORGE_ROOT / "prompts" / f"{phase}.md"
     if not prompt_file.exists():
         print(f"Prompt file not found: {prompt_file}", file=sys.stderr)
@@ -197,13 +152,12 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
     prompt = prompt.replace("{{PARENT_ISSUE_ID}}", parent_issue_id)
     prompt = prompt.replace("{{PARENT_IDENTIFIER}}", parent_identifier)
 
-    # Pre-fetch Linear data and inject into prompt
-    if phase == "planning":
+    if phase == PHASE_PLANNING:
         issue_detail = fetch_issue_detail(issue_id)
         prompt = prompt.replace("{{ISSUE_DETAIL}}", json.dumps(issue_detail, indent=2, ensure_ascii=False))
         todo_state_id = fetch_todo_state_id()
         prompt = prompt.replace("{{TODO_STATE_ID}}", todo_state_id)
-    elif phase == "review":
+    elif phase == PHASE_REVIEW:
         issue_detail = fetch_issue_detail(issue_id)
         prompt = prompt.replace("{{ISSUE_DETAIL}}", json.dumps(issue_detail, indent=2, ensure_ascii=False))
 
@@ -219,7 +173,7 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
         review_comments = fetch_pr_review_comments(issue_identifier, repo_path)
         prompt = prompt.replace("{{REVIEW_COMMENTS}}", review_comments or "(no comments)")
 
-    elif phase == "plan_review":
+    elif phase == PHASE_PLAN_REVIEW:
         issue_detail = fetch_issue_detail(issue_id)
         prompt = prompt.replace("{{ISSUE_DETAIL}}", json.dumps(issue_detail, indent=2, ensure_ascii=False))
 
@@ -233,7 +187,7 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
         todo_state_id = fetch_todo_state_id()
         prompt = prompt.replace("{{TODO_STATE_ID}}", todo_state_id)
 
-    elif phase == "implementing":
+    elif phase == PHASE_IMPLEMENTING:
         sub_detail = fetch_issue_detail(issue_id)
         prompt = prompt.replace("{{SUB_ISSUE_DETAIL}}", json.dumps(sub_detail, indent=2, ensure_ascii=False))
         parent_detail = fetch_issue_detail(parent_issue_id)
@@ -243,148 +197,145 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
         sub_comments = fetch_issue_comments(issue_id)
         prompt = prompt.replace("{{SUB_ISSUE_COMMENTS}}", json.dumps(sub_comments, indent=2, ensure_ascii=False))
 
-    repo = Path(repo_path)
+    return prompt
 
-    model_key = f"FORGE_MODEL_{phase.upper()}"
-    model = env.get(model_key, env["FORGE_MODEL"])
 
-    budget_key = f"FORGE_BUDGET_{phase.upper()}"
-    turns_key = f"FORGE_MAX_TURNS_{phase.upper()}"
-    budget = env.get(budget_key, "1.00")
-    max_turns = env.get(turns_key, "")
+def setup_worktree(phase, repo, issue_identifier, parent_identifier, worktree_base, log_file, issue_id):
+    if phase in (PHASE_PLANNING, PHASE_PLAN_REVIEW):
+        return repo, None
 
-    if phase == "planning":
-        work_dir = repo
-    elif phase == "plan_review":
-        work_dir = repo
-    elif phase == "implementing":
-        worktree_dir = worktree_base / repo.name / issue_identifier
-        worktree_dir.parent.mkdir(parents=True, exist_ok=True)
-        work_dir = worktree_dir
-    elif phase == "review":
-        worktree_dir = worktree_base / repo.name / issue_identifier
-        worktree_dir.parent.mkdir(parents=True, exist_ok=True)
-        work_dir = worktree_dir
-    else:
-        print(f"Unknown phase: {phase}", file=sys.stderr)
-        sys.exit(1)
+    worktree_dir = worktree_base / repo.name / issue_identifier
+    worktree_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    try:
-        if phase == "implementing":
-            # Create worktree: new branch from parent branch (or default branch)
-            base_branch = parent_identifier if parent_identifier else detect_default_branch(str(repo))
-            ret = subprocess.run(
-                ["git", "-C", str(repo), "worktree", "add", str(worktree_dir), "-b", issue_identifier, base_branch],
-                capture_output=True, text=True,
-            )
-            if ret.returncode != 0:
-                print(f"worktree add (new branch) failed: {ret.stderr.strip()}", file=sys.stderr)
-                ret = subprocess.run(
-                    ["git", "-C", str(repo), "worktree", "add", str(worktree_dir), issue_identifier],
-                    capture_output=True, text=True,
-                )
-                if ret.returncode != 0:
-                    print(f"Failed to create worktree for {issue_identifier}: {ret.stderr.strip()}", file=sys.stderr)
-                    mark_failed(issue_id, log_file)
-                    sys.exit(1)
-        elif phase == "review":
-            # Checkout existing branch (PR already exists)
+    if phase == PHASE_IMPLEMENTING:
+        base_branch = parent_identifier if parent_identifier else detect_default_branch(str(repo))
+        ret = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "add", str(worktree_dir), "-b", issue_identifier, base_branch],
+            capture_output=True, text=True,
+        )
+        if ret.returncode != 0:
+            print(f"worktree add (new branch) failed: {ret.stderr.strip()}", file=sys.stderr)
             ret = subprocess.run(
                 ["git", "-C", str(repo), "worktree", "add", str(worktree_dir), issue_identifier],
                 capture_output=True, text=True,
             )
             if ret.returncode != 0:
-                print(f"Failed to create worktree for review {issue_identifier}: {ret.stderr.strip()}", file=sys.stderr)
+                print(f"Failed to create worktree for {issue_identifier}: {ret.stderr.strip()}", file=sys.stderr)
                 mark_failed(issue_id, log_file)
                 sys.exit(1)
+    elif phase == PHASE_REVIEW:
+        ret = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "add", str(worktree_dir), issue_identifier],
+            capture_output=True, text=True,
+        )
+        if ret.returncode != 0:
+            print(f"Failed to create worktree for review {issue_identifier}: {ret.stderr.strip()}", file=sys.stderr)
+            mark_failed(issue_id, log_file)
+            sys.exit(1)
 
-        run_env = {**os.environ}
-        run_env.pop("CLAUDECODE", None)
+    return worktree_dir, worktree_dir
 
+
+def execute_claude(phase, prompt, work_dir, log_dir, log_file, env, extra_write_paths):
+    setup_sandbox(work_dir, log_dir, extra_write_paths=extra_write_paths or None)
+
+    model_key = f"FORGE_MODEL_{phase.upper()}"
+    model = env.get(model_key, env["FORGE_MODEL"])
+    budget_key = f"FORGE_BUDGET_{phase.upper()}"
+    turns_key = f"FORGE_MAX_TURNS_{phase.upper()}"
+    budget = env.get(budget_key, "1.00")
+    max_turns = env.get(turns_key, "")
+
+    run_env = {**os.environ}
+    run_env.pop("CLAUDECODE", None)
+
+    cmd = [
+        "claude", "--print",
+        "--no-session-persistence",
+        "--max-budget-usd", budget,
+        "--model", model,
+        "--dangerously-skip-permissions",
+        "-p", prompt,
+    ]
+    disallowed = DISALLOWED_TOOLS_MAP.get(phase, [])
+    if disallowed:
+        cmd.extend(["--disallowedTools", ",".join(disallowed)])
+    if max_turns:
+        cmd.extend(["--max-turns", max_turns])
+
+    with open(log_file, "w") as log:
+        ret = subprocess.run(
+            cmd,
+            stdout=log, stderr=subprocess.STDOUT,
+            cwd=work_dir, env=run_env,
+        )
+
+    return ret
+
+
+def post_execute(phase, issue_id, issue_identifier, parent_identifier, repo,
+                 worktree_base, lock_dir, log_file):
+    if phase == PHASE_PLANNING:
+        update_issue_state(issue_id, STATE_PENDING_APPROVAL)
+    elif phase == PHASE_PLAN_REVIEW:
+        update_issue_state(issue_id, STATE_PENDING_APPROVAL)
+    elif phase == PHASE_IMPLEMENTING:
+        update_issue_state(issue_id, STATE_DONE)
+    elif phase == PHASE_REVIEW:
+        update_issue_state(issue_id, STATE_IN_REVIEW)
+
+    if parent_identifier:
+        import fcntl
+        merge_lock = lock_dir / f"merge-{parent_identifier}.lock"
+        parent_wt = worktree_base / repo.name / parent_identifier
+        with open(merge_lock, "w") as lf:
+            fcntl.flock(lf, fcntl.LOCK_EX)
+            merge_ret = subprocess.run(
+                ["git", "-C", str(parent_wt), "merge", "--no-ff", issue_identifier,
+                 "-m", f"Merge {issue_identifier}"],
+                capture_output=True, text=True,
+            )
+            if merge_ret.returncode != 0:
+                subprocess.run(["git", "-C", str(parent_wt), "merge", "--abort"],
+                               capture_output=True)
+                mark_failed(issue_id, log_file)
+                sys.exit(1)
+            subprocess.run(
+                ["git", "-C", str(parent_wt), "push", "-u", "origin", parent_identifier],
+                capture_output=True,
+            )
+
+
+def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
+        parent_issue_id: str = "", parent_identifier: str = ""):
+    env = load_env()
+    log_dir = Path(env["FORGE_LOG_DIR"])
+    lock_dir = Path(env["FORGE_LOCK_DIR"])
+    log_file = log_dir / f"{issue_identifier}-{datetime.now():%Y%m%d-%H%M%S}.log"
+    lock_file = lock_dir / f"{issue_id}.lock"
+    worktree_base = Path(env["FORGE_WORKTREE_DIR"])
+    repo = Path(repo_path)
+
+    prompt = prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id,
+                            parent_identifier, repo_path, env)
+
+    work_dir, worktree_dir = setup_worktree(phase, repo, issue_identifier,
+                                            parent_identifier, worktree_base,
+                                            log_file, issue_id)
+
+    try:
         extra_write = []
         if parent_identifier:
-            parent_wt = worktree_base / repo.name / parent_identifier
-            extra_write.append(str(parent_wt))
-        setup_sandbox(work_dir, log_dir, extra_write_paths=extra_write or None)
+            extra_write.append(str(worktree_base / repo.name / parent_identifier))
 
-        disallowed_tools_map = {
-            "planning": [
-                "mcp__linear-server__get_issue",
-                "mcp__linear-server__list_issue_statuses",
-            ],
-            "implementing": [
-                "mcp__linear-server__get_issue",
-                "mcp__linear-server__list_documents",
-                "mcp__linear-server__list_comments",
-                "mcp__linear-server__save_issue",
-            ],
-            "plan_review": [
-                "mcp__linear-server__get_issue",
-                "mcp__linear-server__list_issue_statuses",
-            ],
-            "review": [
-                "mcp__linear-server__save_issue",
-                "mcp__linear-server__get_issue",
-                "mcp__linear-server__list_documents",
-            ],
-        }
-
-        cmd = [
-            "claude", "--print",
-            "--no-session-persistence",
-            "--max-budget-usd", budget,
-            "--model", model,
-            "--dangerously-skip-permissions",
-            "-p", prompt,
-        ]
-        disallowed = disallowed_tools_map.get(phase, [])
-        if disallowed:
-            cmd.extend(["--disallowedTools", ",".join(disallowed)])
-        if max_turns:
-            cmd.extend(["--max-turns", max_turns])
-
-        with open(log_file, "w") as log:
-            ret = subprocess.run(
-                cmd,
-                stdout=log, stderr=subprocess.STDOUT,
-                cwd=work_dir, env=run_env,
-            )
+        ret = execute_claude(phase, prompt, work_dir, log_dir, log_file, env, extra_write)
 
         if ret.returncode != 0:
             mark_failed(issue_id, log_file)
             sys.exit(1)
 
-        # Post-exec status update
-        if phase == "planning":
-            update_issue_state(issue_id, "Pending Approval")
-        elif phase == "plan_review":
-            update_issue_state(issue_id, "Pending Approval")
-        elif phase == "implementing":
-            update_issue_state(issue_id, "Done")
-        elif phase == "review":
-            update_issue_state(issue_id, "In Review")
-
-        # Merge sub-issue branch into parent branch
-        if parent_identifier and ret.returncode == 0:
-            import fcntl
-            merge_lock = lock_dir / f"merge-{parent_identifier}.lock"
-            parent_wt = worktree_base / repo.name / parent_identifier
-            with open(merge_lock, "w") as lf:
-                fcntl.flock(lf, fcntl.LOCK_EX)
-                merge_ret = subprocess.run(
-                    ["git", "-C", str(parent_wt), "merge", "--no-ff", issue_identifier,
-                     "-m", f"Merge {issue_identifier}"],
-                    capture_output=True, text=True,
-                )
-                if merge_ret.returncode != 0:
-                    subprocess.run(["git", "-C", str(parent_wt), "merge", "--abort"],
-                                   capture_output=True)
-                    mark_failed(issue_id, log_file)
-                    sys.exit(1)
-                subprocess.run(
-                    ["git", "-C", str(parent_wt), "push", "-u", "origin", parent_identifier],
-                    capture_output=True,
-                )
+        post_execute(phase, issue_id, issue_identifier, parent_identifier,
+                     repo, worktree_base, lock_dir, log_file)
     finally:
         lock_file.unlink(missing_ok=True)
         if worktree_dir and worktree_dir.exists():
@@ -392,12 +343,12 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
                 ["git", "-C", str(repo), "worktree", "remove", str(worktree_dir), "--force"],
                 capture_output=True,
             )
-        if phase == "implementing":
+        if phase == PHASE_IMPLEMENTING:
             subprocess.run(
                 ["git", "-C", str(repo), "branch", "-D", issue_identifier],
                 capture_output=True,
             )
-        # review: worktree removed but branch kept (push済みのため)
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 5:
