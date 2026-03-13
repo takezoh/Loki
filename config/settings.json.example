@@ -1,0 +1,30 @@
+{
+  "team": "",
+  "team_id": "",
+  "budget": {
+    "poll": "0.10",
+    "planning": "1.00",
+    "implementing": "3.00",
+    "plan_review": "10.00",
+    "review": "10.00"
+  },
+  "max_turns": {
+    "planning": 30,
+    "implementing": 50,
+    "plan_review": 30,
+    "review": 30
+  },
+  "model": {
+    "default": "sonnet",
+    "planning": "opus",
+    "implementing": "sonnet",
+    "plan_review": "opus",
+    "pr": "haiku",
+    "review": "opus"
+  },
+  "log_dir": "/home/take/dev/forge/logs",
+  "lock_dir": "/home/take/dev/forge/lock",
+  "worktree_dir": "/home/take/worktrees",
+  "max_concurrent": 3,
+  "lock_timeout_min": 60
+}

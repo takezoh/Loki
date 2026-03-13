@@ -22,7 +22,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=${FORGE_ROOT}/bin/daemon.sh
 WorkingDirectory=${FORGE_ROOT}
-EnvironmentFile=${FORGE_ROOT}/config/forge.env
+EnvironmentFile=${FORGE_ROOT}/config/secrets.env
 Restart=on-failure
 RestartSec=30
 

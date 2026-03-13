@@ -54,20 +54,35 @@ done
 
 # 4. Configuration files
 echo "[4/6] Configuration files"
-if [ -f "$FORGE_ROOT/config/forge.env" ]; then
-    ok "config/forge.env"
+if [ -f "$FORGE_ROOT/config/settings.json" ]; then
+    ok "config/settings.json"
 
-    for key in FORGE_TEAM_ID LINEAR_API_KEY FORGE_LOG_DIR FORGE_LOCK_DIR FORGE_WORKTREE_DIR; do
-        val=$(grep "^${key}=" "$FORGE_ROOT/config/forge.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+    for key in team_id log_dir lock_dir worktree_dir; do
+        val=$(python3 -c "import json; c=json.load(open('$FORGE_ROOT/config/settings.json')); print(c.get('$key',''))" 2>/dev/null)
         if [ -z "$val" ]; then
-            fail "  $key is not set"
+            fail "  $key is not set in settings.json"
             errors=$((errors + 1))
         fi
     done
 else
-    warn "config/forge.env not found — copying from example"
-    cp "$FORGE_ROOT/config/forge.env.example" "$FORGE_ROOT/config/forge.env"
-    ok "Created config/forge.env (please fill in the values)"
+    warn "config/settings.json not found — copying from example"
+    cp "$FORGE_ROOT/config/settings.json.example" "$FORGE_ROOT/config/settings.json"
+    ok "Created config/settings.json (please fill in the values)"
+    errors=$((errors + 1))
+fi
+
+if [ -f "$FORGE_ROOT/config/secrets.env" ]; then
+    ok "config/secrets.env"
+
+    val=$(grep "^LINEAR_API_KEY=" "$FORGE_ROOT/config/secrets.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+    if [ -z "$val" ]; then
+        fail "  LINEAR_API_KEY is not set in secrets.env"
+        errors=$((errors + 1))
+    fi
+else
+    warn "config/secrets.env not found — copying from example"
+    cp "$FORGE_ROOT/config/secrets.env.example" "$FORGE_ROOT/config/secrets.env"
+    ok "Created config/secrets.env (please fill in LINEAR_API_KEY)"
     errors=$((errors + 1))
 fi
 
@@ -81,8 +96,8 @@ fi
 
 # 5. Create directories
 echo "[5/6] Create directories"
-for dir_key in FORGE_LOG_DIR FORGE_LOCK_DIR FORGE_WORKTREE_DIR; do
-    dir=$(grep "^${dir_key}=" "$FORGE_ROOT/config/forge.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'")
+for dir_key in log_dir lock_dir worktree_dir; do
+    dir=$(python3 -c "import json; c=json.load(open('$FORGE_ROOT/config/settings.json')); print(c.get('$dir_key',''))" 2>/dev/null)
     if [ -n "$dir" ]; then
         mkdir -p "$dir"
         ok "$dir"

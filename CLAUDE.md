@@ -8,7 +8,8 @@ Linear-driven AI agent. Automatically plans and implements tasks triggered by is
 - `bin/poll.py` — Linear GraphQL polling for issues by status
 - `bin/run_claude.py` — Per-issue claude CLI execution (planning / implementing)
 - `prompts/` — Prompt templates for each phase
-- `config/forge.env` — Configuration values
+- `config/settings.json` — Configuration values (git tracked)
+- `config/secrets.env` — Credentials (git ignored)
 - `config/repos.conf` — Label → repository path mapping
 
 ## Flow
