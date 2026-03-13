@@ -271,6 +271,75 @@ def fetch_sub_issues(parent_id: str) -> dict:
     return {"sub_issues": sub_issues, "documents": documents, "cycle": detect_dependency_cycle(nodes)}
 
 
+ISSUE_DETAIL_QUERY = """
+query($issueId: String!) {
+  issue(id: $issueId) {
+    id
+    identifier
+    title
+    description
+    labels {
+      nodes {
+        name
+        parent { name }
+      }
+    }
+  }
+}
+"""
+
+ISSUE_COMMENTS_QUERY = """
+query($issueId: String!) {
+  issue(id: $issueId) {
+    comments {
+      nodes {
+        body
+        user { name }
+        createdAt
+      }
+    }
+  }
+}
+"""
+
+
+def fetch_issue_detail(issue_id: str) -> dict:
+    env = load_env()
+    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+    data = graphql(api_key, ISSUE_DETAIL_QUERY, {"issueId": issue_id})
+    issue = data.get("data", {}).get("issue", {})
+    labels = []
+    for label in issue.get("labels", {}).get("nodes", []):
+        p = label.get("parent")
+        name = label["name"]
+        labels.append(f"{p['name']}:{name}" if p else name)
+    return {
+        "id": issue.get("id", ""),
+        "identifier": issue.get("identifier", ""),
+        "title": issue.get("title", ""),
+        "description": issue.get("description", ""),
+        "labels": labels,
+    }
+
+
+def fetch_issue_comments(issue_id: str) -> list[dict]:
+    env = load_env()
+    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+    data = graphql(api_key, ISSUE_COMMENTS_QUERY, {"issueId": issue_id})
+    comments = data.get("data", {}).get("issue", {}).get("comments", {}).get("nodes", [])
+    return [{"body": c["body"], "user": c.get("user", {}).get("name", ""), "createdAt": c["createdAt"]} for c in comments]
+
+
+def fetch_todo_state_id(team_id: str = "") -> str:
+    env = load_env()
+    api_key = env.get("LINEAR_API_KEY") or os.environ.get("LINEAR_API_KEY", "")
+    if not team_id:
+        team_id = env["FORGE_TEAM_ID"]
+    data = graphql(api_key, WORKFLOW_STATES_QUERY, {"teamId": team_id})
+    states = data.get("data", {}).get("workflowStates", {}).get("nodes", [])
+    return next((s["id"] for s in states if s["name"] == "Todo"), "")
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: poll.py <status_name>", file=sys.stderr)

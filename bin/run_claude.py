@@ -11,7 +11,8 @@ from pathlib import Path
 FORGE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(FORGE_ROOT / "bin"))
 
-from poll import update_issue_state, create_comment
+from poll import (update_issue_state, create_comment, fetch_issue_detail,
+                 fetch_issue_comments, fetch_todo_state_id, fetch_sub_issues)
 
 
 def detect_default_branch(repo_path: str) -> str:
@@ -118,6 +119,22 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
     prompt = prompt.replace("{{PARENT_ISSUE_ID}}", parent_issue_id)
     prompt = prompt.replace("{{PARENT_IDENTIFIER}}", parent_identifier)
 
+    # Pre-fetch Linear data and inject into prompt
+    if phase == "planning":
+        issue_detail = fetch_issue_detail(issue_id)
+        prompt = prompt.replace("{{ISSUE_DETAIL}}", json.dumps(issue_detail, indent=2, ensure_ascii=False))
+        todo_state_id = fetch_todo_state_id()
+        prompt = prompt.replace("{{TODO_STATE_ID}}", todo_state_id)
+    elif phase == "implementing":
+        sub_detail = fetch_issue_detail(issue_id)
+        prompt = prompt.replace("{{SUB_ISSUE_DETAIL}}", json.dumps(sub_detail, indent=2, ensure_ascii=False))
+        parent_detail = fetch_issue_detail(parent_issue_id)
+        prompt = prompt.replace("{{PARENT_ISSUE_DETAIL}}", json.dumps(parent_detail, indent=2, ensure_ascii=False))
+        parent_data = fetch_sub_issues(parent_issue_id)
+        prompt = prompt.replace("{{PLAN_DOCUMENTS}}", json.dumps(parent_data.get("documents", []), indent=2, ensure_ascii=False))
+        sub_comments = fetch_issue_comments(issue_id)
+        prompt = prompt.replace("{{SUB_ISSUE_COMMENTS}}", json.dumps(sub_comments, indent=2, ensure_ascii=False))
+
     repo = Path(repo_path)
 
     model_key = f"FORGE_MODEL_{phase.upper()}"
@@ -166,6 +183,19 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
             extra_write.append(str(parent_wt))
         setup_sandbox(work_dir, log_dir, extra_write_paths=extra_write or None)
 
+        disallowed_tools_map = {
+            "planning": [
+                "mcp__linear-server__get_issue",
+                "mcp__linear-server__list_issue_statuses",
+            ],
+            "implementing": [
+                "mcp__linear-server__get_issue",
+                "mcp__linear-server__list_documents",
+                "mcp__linear-server__list_comments",
+                "mcp__linear-server__save_issue",
+            ],
+        }
+
         cmd = [
             "claude", "--print",
             "--no-session-persistence",
@@ -174,6 +204,9 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
             "--dangerously-skip-permissions",
             "-p", prompt,
         ]
+        disallowed = disallowed_tools_map.get(phase, [])
+        if disallowed:
+            cmd.extend(["--disallowedTools", ",".join(disallowed)])
         if max_turns:
             cmd.extend(["--max-turns", max_turns])
 
@@ -187,6 +220,12 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
         if ret.returncode != 0:
             mark_failed(issue_id, log_file)
             sys.exit(1)
+
+        # Post-exec status update
+        if phase == "planning":
+            update_issue_state(issue_id, "Pending Approval")
+        elif phase == "implementing":
+            update_issue_state(issue_id, "Done")
 
         # Merge sub-issue branch into parent branch
         if parent_identifier and ret.returncode == 0:

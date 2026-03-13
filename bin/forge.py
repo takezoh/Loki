@@ -12,7 +12,7 @@ from pathlib import Path
 FORGE_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(FORGE_ROOT / "bin"))
 
-from poll import load_env, poll, fetch_sub_issues, update_issue_state
+from poll import load_env, poll, fetch_sub_issues, fetch_issue_detail, update_issue_state
 
 
 def detect_default_branch(repo_path: str) -> str:
@@ -66,8 +66,61 @@ def clean_stale_locks(lock_dir: Path, timeout_min: int):
 def log(msg: str):
     print(f"[{datetime.now():%H:%M:%S}] {msg}")
 
+def generate_pr_body(parent_id: str, parent_identifier: str, repo_path: str,
+                     sub_issues: list[dict], env: dict) -> tuple[str, str]:
+    prompt_file = FORGE_ROOT / "prompts" / "pr.md"
+    prompt = prompt_file.read_text()
+
+    parent_detail = fetch_issue_detail(parent_id)
+    prompt = prompt.replace("{{PARENT_ISSUE_DETAIL}}", json.dumps(parent_detail, indent=2, ensure_ascii=False))
+
+    parent_data = fetch_sub_issues(parent_id)
+    prompt = prompt.replace("{{PLAN_DOCUMENTS}}", json.dumps(parent_data.get("documents", []), indent=2, ensure_ascii=False))
+
+    sub_summary = []
+    for s in sub_issues:
+        sub_summary.append(f"- {s['identifier']}: {s['title']} ({s.get('state', '')})")
+    prompt = prompt.replace("{{SUB_ISSUES}}", "\n".join(sub_summary))
+
+    default_branch = detect_default_branch(repo_path)
+    diff_stat = subprocess.run(
+        ["git", "-C", repo_path, "diff", "--stat", f"{default_branch}...{parent_identifier}"],
+        capture_output=True, text=True,
+    )
+    prompt = prompt.replace("{{DIFF_STAT}}", diff_stat.stdout if diff_stat.returncode == 0 else "(unavailable)")
+
+    model = env.get("FORGE_MODEL_PR", env["FORGE_MODEL"])
+    ret = subprocess.run(
+        ["claude", "--print", "--no-session-persistence", "--model", model,
+         "--max-turns", "1", "-p", prompt],
+        capture_output=True, text=True, cwd=repo_path,
+    )
+    if ret.returncode != 0:
+        return parent_detail.get("title", parent_identifier), f"Parent issue: {parent_identifier}\n\nAll sub-issues completed."
+
+    output = ret.stdout.strip()
+    title = parent_detail.get("title", parent_identifier)
+    body = output
+
+    if "TITLE:" in output and "---" in output:
+        parts = output.split("---", 1)
+        for line in parts[0].splitlines():
+            if line.startswith("TITLE:"):
+                title = line.removeprefix("TITLE:").strip()
+                break
+        body = parts[1].strip()
+        # Strip wrapping code fences if present
+        if body.startswith("```"):
+            body = body.split("\n", 1)[1] if "\n" in body else body
+        if body.endswith("```"):
+            body = body.rsplit("\n", 1)[0] if "\n" in body else body
+
+    return title, body
+
+
 def create_parent_pr(parent_identifier: str, parent_title: str, repo_path: str,
-                     parent_id: str, lock_dir: Path, env: dict):
+                     parent_id: str, lock_dir: Path, env: dict,
+                     sub_issues: list[dict] | None = None):
     pr_lock = lock_dir / f"pr-{parent_identifier}.lock"
     if pr_lock.exists():
         log(f"  Skip PR creation for {parent_identifier} (already created)")
@@ -75,10 +128,14 @@ def create_parent_pr(parent_identifier: str, parent_title: str, repo_path: str,
 
     pr_lock.write_text(parent_identifier)
 
+    log(f"  Generating PR description for {parent_identifier}...")
+    title, body = generate_pr_body(parent_id, parent_identifier, repo_path,
+                                   sub_issues or [], env)
+
     ret = subprocess.run(
         ["gh", "pr", "create", "--draft",
-         "--title", f"{parent_identifier}: {parent_title}",
-         "--body", f"Parent issue: {parent_identifier}\n\nAll sub-issues completed.",
+         "--title", f"{parent_identifier}: {title}",
+         "--body", body,
          "--head", parent_identifier, "--base", detect_default_branch(repo_path)],
         capture_output=True, text=True, cwd=repo_path,
     )
@@ -239,7 +296,7 @@ def main():
             all_done = all(s.get("state") == "Done" for s in sub_issues) and len(sub_issues) > 0
             if all_done:
                 create_parent_pr(parent_identifier, parent["title"], repo_path,
-                                 parent_id, lock_dir, env)
+                                 parent_id, lock_dir, env, sub_issues=sub_issues)
 
     for p in processes:
         p.wait()

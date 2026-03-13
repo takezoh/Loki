@@ -9,12 +9,27 @@ You do not write code yourself — use the Agent tool to launch implementer and 
 
 ## Steps
 
-### 1. Fetch Issue Information (do this yourself)
+### 1. Issue Information (pre-fetched)
 
-- Use `get_issue` to retrieve sub-issue ID `{{ISSUE_ID}}`
-- Use `get_issue` to retrieve parent issue ID `{{PARENT_ISSUE_ID}}` for overall context
-- Use `list_documents` to retrieve the parent issue's documents (plan)
-- Use `list_comments` to check sub-issue comments
+**Sub-issue:**
+```json
+{{SUB_ISSUE_DETAIL}}
+```
+
+**Parent issue:**
+```json
+{{PARENT_ISSUE_DETAIL}}
+```
+
+**Plan documents:**
+```json
+{{PLAN_DOCUMENTS}}
+```
+
+**Sub-issue comments:**
+```json
+{{SUB_ISSUE_COMMENTS}}
+```
 
 ### 2. Launch Implementer Agent
 
@@ -101,13 +116,12 @@ Execute all of the following yourself:
    **{{ISSUE_IDENTIFIER}}**: {one-line summary of changes} (merged into {{PARENT_IDENTIFIER}})
    Details: {link to sub-issue identifier}
    ```
-4. **Update status**:
-   - Use `save_issue` to change sub-issue status to "Done"
+4. **Status update**: Done status is set automatically after completion
 
 ### On Error
 
 If implementation makes no progress / agent fails with an error:
-- Use `save_issue` to change sub-issue status to "Failed"
+- Failed status is set automatically by the forge system
 - Post detailed error information as a comment on the sub-issue
 - Post `**{{ISSUE_IDENTIFIER}}**: Implementation failed — see sub-issue for details` as a comment on the parent issue
 

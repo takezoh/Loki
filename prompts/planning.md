@@ -8,9 +8,13 @@ Delegate code investigation to the Plan agent and focus on bridging with Linear.
 
 ## Steps
 
-### 1. Fetch Issue
+### 1. Issue Information
 
-Use `get_issue` to retrieve the details (title, description, labels) of issue ID `{{ISSUE_ID}}`.
+Use the following pre-fetched issue details:
+
+```json
+{{ISSUE_DETAIL}}
+```
 
 ### 2. Delegate to Plan Agent
 
@@ -38,7 +42,7 @@ Convert the Plan agent's output into a Linear document using `create_document`.
 Convert each work unit into a sub-issue using `save_issue`.
 
 - `parentId`: `{{ISSUE_ID}}`
-- `stateId`: Use the "Todo" status ID (retrieve via `list_issue_statuses`)
+- `stateId`: `{{TODO_STATE_ID}}`
 - `description`: Copy the implementation approach from the Plan agent output as-is
 - Use actual newline characters (not literal `\n`)
 - Apply the same labels as the parent issue
@@ -58,7 +62,7 @@ python /home/take/dev/forge/bin/check_cycle.py <parent_issue_id>
 ### 6. Completion
 
 - Post a plan summary as a comment on the parent issue using `save_comment` (sub-issue list + dependencies)
-- Change the parent issue status to "Pending Approval" using `save_issue`
+- Status update to "Pending Approval" is handled automatically after completion
 
 ## Notes
 
