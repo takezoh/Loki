@@ -14,6 +14,25 @@ sys.path.insert(0, str(FORGE_ROOT / "bin"))
 
 from poll import load_env, poll, fetch_sub_issues, update_issue_state
 
+
+def detect_default_branch(repo_path: str) -> str:
+    ret = subprocess.run(
+        ["git", "-C", repo_path, "symbolic-ref", "refs/remotes/origin/HEAD"],
+        capture_output=True, text=True,
+    )
+    if ret.returncode != 0:
+        subprocess.run(
+            ["git", "-C", repo_path, "remote", "set-head", "origin", "--auto"],
+            capture_output=True,
+        )
+        ret = subprocess.run(
+            ["git", "-C", repo_path, "symbolic-ref", "refs/remotes/origin/HEAD"],
+            capture_output=True, text=True,
+        )
+    if ret.returncode == 0:
+        return ret.stdout.strip().split("/")[-1]
+    return "main"
+
 def load_repos() -> dict[str, str]:
     repos = {}
     conf = FORGE_ROOT / "config" / "repos.conf"
@@ -60,7 +79,7 @@ def create_parent_pr(parent_identifier: str, parent_title: str, repo_path: str,
         ["gh", "pr", "create", "--draft",
          "--title", f"{parent_identifier}: {parent_title}",
          "--body", f"Parent issue: {parent_identifier}\n\nAll sub-issues completed.",
-         "--head", parent_identifier, "--base", "main"],
+         "--head", parent_identifier, "--base", detect_default_branch(repo_path)],
         capture_output=True, text=True, cwd=repo_path,
     )
     if ret.returncode == 0:
@@ -179,11 +198,15 @@ def main():
                 capture_output=True,
             )
             if ret.returncode != 0:
-                subprocess.run(
-                    ["git", "-C", repo_path, "branch", parent_identifier, "main"],
-                    capture_output=True,
+                default_branch = detect_default_branch(repo_path)
+                br_ret = subprocess.run(
+                    ["git", "-C", repo_path, "branch", parent_identifier, default_branch],
+                    capture_output=True, text=True,
                 )
-                log(f"  Created parent branch: {parent_identifier}")
+                if br_ret.returncode != 0:
+                    log(f"  Failed to create parent branch {parent_identifier} from {default_branch}: {br_ret.stderr.strip()}")
+                    continue
+                log(f"  Created parent branch: {parent_identifier} (from {default_branch})")
 
             # Create parent worktree (merge target)
             parent_worktree = Path(env["FORGE_WORKTREE_DIR"]) / Path(repo_path).name / parent_identifier

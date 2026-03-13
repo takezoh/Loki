@@ -10,6 +10,25 @@ from pathlib import Path
 
 FORGE_ROOT = Path(__file__).resolve().parent.parent
 
+
+def detect_default_branch(repo_path: str) -> str:
+    ret = subprocess.run(
+        ["git", "-C", repo_path, "symbolic-ref", "refs/remotes/origin/HEAD"],
+        capture_output=True, text=True,
+    )
+    if ret.returncode != 0:
+        subprocess.run(
+            ["git", "-C", repo_path, "remote", "set-head", "origin", "--auto"],
+            capture_output=True,
+        )
+        ret = subprocess.run(
+            ["git", "-C", repo_path, "symbolic-ref", "refs/remotes/origin/HEAD"],
+            capture_output=True, text=True,
+        )
+    if ret.returncode == 0:
+        return ret.stdout.strip().split("/")[-1]
+    return "main"
+
 SANDBOX_SETTINGS = {
     "sandbox": {
         "enabled": True,
@@ -123,19 +142,20 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
         worktree_dir = worktree_base / repo.name / issue_identifier
         worktree_dir.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create worktree: new branch from parent branch (or main)
-        base_branch = parent_identifier if parent_identifier else "main"
+        # Create worktree: new branch from parent branch (or default branch)
+        base_branch = parent_identifier if parent_identifier else detect_default_branch(str(repo))
         ret = subprocess.run(
             ["git", "-C", str(repo), "worktree", "add", str(worktree_dir), "-b", issue_identifier, base_branch],
-            capture_output=True,
+            capture_output=True, text=True,
         )
         if ret.returncode != 0:
+            print(f"worktree add (new branch) failed: {ret.stderr.strip()}", file=sys.stderr)
             ret = subprocess.run(
                 ["git", "-C", str(repo), "worktree", "add", str(worktree_dir), issue_identifier],
-                capture_output=True,
+                capture_output=True, text=True,
             )
             if ret.returncode != 0:
-                print(f"Failed to create worktree for {issue_identifier}", file=sys.stderr)
+                print(f"Failed to create worktree for {issue_identifier}: {ret.stderr.strip()}", file=sys.stderr)
                 sys.exit(1)
 
         work_dir = worktree_dir
