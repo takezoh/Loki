@@ -9,7 +9,7 @@ from .constants import (PHASE_PLANNING, PHASE_IMPLEMENTING,
 from .git import detect_default_branch, diff_stat
 from .linear import fetch_issue_detail, fetch_sub_issues
 
-SANDBOX_SETTINGS = {
+DEFAULT_SANDBOX_SETTINGS = {
     "sandbox": {
         "enabled": True,
         "autoAllowBashIfSandboxed": True,
@@ -28,17 +28,10 @@ SANDBOX_SETTINGS = {
                 "api.anthropic.com",
             ],
         },
-    },
-    "permissions": {
-        "deny": [
-            "Bash(rm -rf /)",
-            "Bash(git push * --force *)",
-            "Bash(git push * -f *)",
-        ],
-    },
+    }
 }
 
-DISALLOWED_TOOLS_MAP = {
+DEFAULT_DISALLOWED_TOOLS_MAP = {
     PHASE_PLANNING: [
         "mcp__linear-server__get_issue",
         "mcp__linear-server__list_issue_statuses",
@@ -61,9 +54,31 @@ DISALLOWED_TOOLS_MAP = {
 }
 
 
-def setup_sandbox(work_dir: Path, log_dir: Path, extra_write_paths: list[str] | None = None):
-    settings = json.loads(json.dumps(SANDBOX_SETTINGS))
-    allow_write = [str(log_dir)]
+def _deep_merge(base: dict, override: dict) -> dict:
+    result = base.copy()
+    for key, val in override.items():
+        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
+            result[key] = _deep_merge(result[key], val)
+        else:
+            result[key] = val
+    return result
+
+
+def _load_config() -> dict:
+    settings_path = FORGE_ROOT / "config" / "settings.json"
+    if not settings_path.exists():
+        return {}
+    with open(settings_path) as f:
+        return json.load(f)
+
+
+def setup_sandbox(work_dir: Path, log_dir: Path | None = None,
+                   extra_write_paths: list[str] | None = None):
+    cfg = _load_config()
+    settings = json.loads(json.dumps(DEFAULT_SANDBOX_SETTINGS))
+    if "sandbox" in cfg:
+        settings["sandbox"] = _deep_merge(settings["sandbox"], cfg["sandbox"])
+    allow_write = [str(log_dir)] if log_dir else []
     if extra_write_paths:
         allow_write.extend(extra_write_paths)
     settings["sandbox"]["filesystem"]["allowWrite"] = allow_write
@@ -74,16 +89,36 @@ def setup_sandbox(work_dir: Path, log_dir: Path, extra_write_paths: list[str] | 
     settings_file.write_text(json.dumps(settings, indent=2))
 
 
-def run(prompt: str, work_dir: Path, log_dir: Path, log_file: Path,
-        env: dict, phase: str, extra_write_paths: list[str] | None = None):
-    setup_sandbox(work_dir, log_dir, extra_write_paths=extra_write_paths)
-
+def resolve_config(phase: str, env: dict) -> dict:
     model_key = f"FORGE_MODEL_{phase.upper()}"
-    model = env.get(model_key, env["FORGE_MODEL"])
     budget_key = f"FORGE_BUDGET_{phase.upper()}"
     turns_key = f"FORGE_MAX_TURNS_{phase.upper()}"
+    model = env.get(model_key, env["FORGE_MODEL"])
     budget = env.get(budget_key, "1.00")
-    max_turns = env.get(turns_key, "")
+    max_turns = env[turns_key]
+
+    cfg = _load_config()
+    disallowed_tools_map = cfg.get("disallowed_tools", {})
+    if phase in disallowed_tools_map:
+        disallowed = disallowed_tools_map[phase]
+    else:
+        disallowed = DEFAULT_DISALLOWED_TOOLS_MAP.get(phase, [])
+
+    return {
+        "model": model,
+        "budget": budget,
+        "max_turns": max_turns,
+        "disallowed_tools": disallowed,
+    }
+
+
+def run(prompt: str, work_dir: Path, *,
+        model: str, max_turns: str, budget: str = "1.00",
+        disallowed_tools: list[str] | None = None,
+        log_dir: Path | None = None, log_file: Path | None = None,
+        extra_write_paths: list[str] | None = None,
+        capture_output: bool = False):
+    setup_sandbox(work_dir, log_dir, extra_write_paths=extra_write_paths)
 
     run_env = {**os.environ}
     run_env.pop("CLAUDECODE", None)
@@ -92,22 +127,27 @@ def run(prompt: str, work_dir: Path, log_dir: Path, log_file: Path,
         "claude", "--print",
         "--no-session-persistence",
         "--max-budget-usd", budget,
+        "--max-turns", max_turns,
         "--model", model,
         "--dangerously-skip-permissions",
         "-p", prompt,
     ]
-    disallowed = DISALLOWED_TOOLS_MAP.get(phase, [])
-    if disallowed:
-        cmd.extend(["--disallowedTools", ",".join(disallowed)])
-    if max_turns:
-        cmd.extend(["--max-turns", max_turns])
+    if disallowed_tools:
+        cmd.extend(["--disallowedTools", ",".join(disallowed_tools)])
 
-    with open(log_file, "w") as log:
+    if capture_output:
         ret = subprocess.run(
             cmd,
-            stdout=log, stderr=subprocess.STDOUT,
+            capture_output=True, text=True,
             cwd=work_dir, env=run_env,
         )
+    else:
+        with open(log_file, "w") as log:
+            ret = subprocess.run(
+                cmd,
+                stdout=log, stderr=subprocess.STDOUT,
+                cwd=work_dir, env=run_env,
+            )
 
     return ret
 
@@ -131,12 +171,9 @@ def generate_pr_body(parent_id: str, parent_identifier: str, repo_path: str,
     default_branch = detect_default_branch(repo_path)
     prompt = prompt.replace("{{DIFF_STAT}}", diff_stat(repo_path, default_branch, parent_identifier))
 
-    model = env.get("FORGE_MODEL_PR", env["FORGE_MODEL"])
-    ret = subprocess.run(
-        ["claude", "--print", "--no-session-persistence", "--model", model,
-         "--max-turns", "1", "-p", prompt],
-        capture_output=True, text=True, cwd=repo_path,
-    )
+    ret = run(prompt, Path(repo_path),
+              model=env.get("FORGE_MODEL_PR", env["FORGE_MODEL"]),
+              max_turns="1", capture_output=True)
     if ret.returncode != 0:
         return parent_detail.get("title", parent_identifier), f"Parent issue: {parent_identifier}\n\nAll sub-issues completed."
 
