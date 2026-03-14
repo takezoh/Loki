@@ -95,19 +95,39 @@ def _handle_stop(payload: dict, env: dict):
     emit_response(session_id, "Stopped.", api_key)
 
 
+def _handle_status_change(payload: dict, env: dict):
+    updated_from = payload.get("updatedFrom", {})
+    if "stateId" not in updated_from:
+        return
+
+    data = payload.get("data", {})
+    issue_id = data.get("id", "")
+    state_name = data.get("state", {}).get("name", "")
+    phase = STATE_TO_PHASE.get(state_name)
+
+    if not issue_id or not phase:
+        return
+
+    queue_dir = env["FORGE_QUEUE_DIR"]
+    pid_file = env["FORGE_PID_FILE"]
+
+    enqueue(queue_dir, issue_id, "", phase)
+    wake(pid_file)
+
+
 def _process_event(payload: dict, env: dict):
     try:
         event_type = payload.get("type")
-        if event_type != "AgentSessionEvent":
-            return
-
-        action = payload.get("action")
-        if action == "created":
-            _handle_created(payload, env)
-        elif action == "prompted":
-            _handle_prompted(payload, env)
-        elif action == "stop":
-            _handle_stop(payload, env)
+        if event_type == "AgentSessionEvent":
+            action = payload.get("action")
+            if action == "created":
+                _handle_created(payload, env)
+            elif action == "prompted":
+                _handle_prompted(payload, env)
+            elif action == "stop":
+                _handle_stop(payload, env)
+        elif event_type == "Issue" and payload.get("action") == "update":
+            _handle_status_change(payload, env)
     except Exception as e:
         session_id = payload.get("agentSession", {}).get("id", "")
         api_key = get_api_key(env)
