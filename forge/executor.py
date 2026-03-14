@@ -15,29 +15,6 @@ from .linear import (update_issue_state, create_comment, create_attachment,
                      fetch_issue_detail, fetch_issue_comments,
                      fetch_todo_state_id, fetch_sub_issues)
 
-DISALLOWED_TOOLS_MAP = {
-    PHASE_PLANNING: [
-        "mcp__linear-server__get_issue",
-        "mcp__linear-server__list_issue_statuses",
-    ],
-    PHASE_IMPLEMENTING: [
-        "mcp__linear-server__get_issue",
-        "mcp__linear-server__list_documents",
-        "mcp__linear-server__list_comments",
-        "mcp__linear-server__save_issue",
-    ],
-    PHASE_PLAN_REVIEW: [
-        "mcp__linear-server__get_issue",
-        "mcp__linear-server__list_issue_statuses",
-    ],
-    PHASE_REVIEW: [
-        "mcp__linear-server__save_issue",
-        "mcp__linear-server__get_issue",
-        "mcp__linear-server__list_documents",
-    ],
-}
-
-
 def resolve_config(phase: str, env: dict) -> dict:
     model_key = f"FORGE_MODEL_{phase.upper()}"
     budget_key = f"FORGE_BUDGET_{phase.upper()}"
@@ -46,12 +23,15 @@ def resolve_config(phase: str, env: dict) -> dict:
     budget = env.get(budget_key, "1.00")
     max_turns = env[turns_key]
 
-    disallowed = DISALLOWED_TOOLS_MAP.get(phase, [])
+    cfg = load_config()
+    allowed = cfg.get("allowed_tools", {}).get(phase)
+    disallowed = cfg.get("disallowed_tools", {}).get(phase)
 
     return {
         "model": model,
         "budget": budget,
         "max_turns": max_turns,
+        "allowed_tools": allowed,
         "disallowed_tools": disallowed,
     }
 

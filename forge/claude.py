@@ -38,6 +38,7 @@ def setup_sandbox(work_dir: Path, *, log_dir: Path | None = None,
 
 def run(prompt: str, work_dir: Path, *,
         model: str, max_turns: str, budget: str = "1.00",
+        allowed_tools: list[str] | None = None,
         disallowed_tools: list[str] | None = None,
         log_file: Path | None = None,
         capture_output: bool = False,
@@ -58,6 +59,8 @@ def run(prompt: str, work_dir: Path, *,
         "-p", prompt,
         "--output-format", "json",
     ]
+    if allowed_tools:
+        cmd.extend(["--allowedTools", ",".join(allowed_tools)])
     if disallowed_tools:
         cmd.extend(["--disallowedTools", ",".join(disallowed_tools)])
 
