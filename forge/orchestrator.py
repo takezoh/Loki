@@ -4,13 +4,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .config import FORGE_ROOT, load_env, load_repos, resolve_repo
-from .constants import (STATE_PLANNING, STATE_IMPLEMENTING,
+from config import FORGE_ROOT, load_env, load_repos, resolve_repo
+from config.constants import (STATE_PLANNING, STATE_IMPLEMENTING,
                         STATE_PLAN_CHANGES_REQUESTED, STATE_CHANGES_REQUESTED,
                         STATE_IN_PROGRESS, STATE_IN_REVIEW, STATE_DONE)
-from .git import branch_exists, create_branch, detect_default_branch, worktree_add, worktree_remove, pr_create
-from .claude import generate_pr_body
-from .linear import poll, fetch_sub_issues, update_issue_state
+from lib.git import branch_exists, create_branch, detect_default_branch, worktree_add, worktree_remove, pr_create
+from lib.claude import generate_pr_body
+from lib.linear import poll, fetch_sub_issues, update_issue_state
 
 
 def count_locks(lock_dir: Path) -> int:
@@ -103,8 +103,7 @@ def dispatch_issue(phase: str, issue: dict, lock_dir: Path, max_concurrent: int,
     return subprocess.Popen(cmd, cwd=str(FORGE_ROOT))
 
 
-def main():
-    env = load_env()
+def run_once(env: dict) -> bool:
     log_dir = Path(env["FORGE_LOG_DIR"])
     lock_dir = Path(env["FORGE_LOCK_DIR"])
     max_concurrent = int(env["FORGE_MAX_CONCURRENT"])
@@ -116,8 +115,6 @@ def main():
     repos = load_repos()
 
     clean_stale_locks(lock_dir, lock_timeout)
-
-    log("=== forge started ===")
 
     log("Polling Planning issues...")
     planning_issues = poll(STATE_PLANNING)
@@ -216,5 +213,18 @@ def main():
     for p in processes:
         p.wait()
 
-    log("=== forge finished ===")
     return len(processes) > 0
+
+
+def main(interval: int = 0):
+    env = load_env()
+
+    if interval <= 0:
+        log("=== forge (single run) ===")
+        return run_once(env)
+
+    log(f"=== forge daemon (interval={interval}s) ===")
+    while True:
+        run_once(env)
+        log(f"Sleeping {interval}s...")
+        time.sleep(interval)

@@ -3,18 +3,18 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from .config import FORGE_ROOT, load_env, load_config, get_api_key
-from .constants import (STATE_PENDING_APPROVAL, STATE_DONE, STATE_IN_REVIEW,
+from config import FORGE_ROOT, load_env, load_config, get_api_key
+from config.constants import (STATE_PENDING_APPROVAL, STATE_DONE, STATE_IN_REVIEW,
                         STATE_FAILED, PHASE_PLANNING, PHASE_IMPLEMENTING,
                         PHASE_REVIEW, PHASE_PLAN_REVIEW)
-from .agent_api import emit_thought, emit_action, emit_response, emit_error
-from .git import (detect_default_branch, has_new_commits, worktree_add,
+from lib.linear import (emit_thought, emit_action, emit_response, emit_error,
+                        update_issue_state, create_comment, create_attachment,
+                        fetch_issue_detail, fetch_issue_comments,
+                        fetch_todo_state_id, fetch_sub_issues)
+from lib.git import (detect_default_branch, has_new_commits, worktree_add,
                   worktree_remove, merge, merge_abort, push, delete_branch,
                   pr_diff, fetch_pr_review_comments)
-from .claude import run as run_claude
-from .linear import (update_issue_state, create_comment, create_attachment,
-                     fetch_issue_detail, fetch_issue_comments,
-                     fetch_todo_state_id, fetch_sub_issues)
+from lib.claude import run as run_claude
 
 def resolve_config(phase: str, env: dict) -> dict:
     model_key = f"FORGE_MODEL_{phase.upper()}"

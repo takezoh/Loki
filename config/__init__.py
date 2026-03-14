@@ -51,7 +51,7 @@ def load_env():
                 k, _, v = line.partition("=")
                 env[k] = v.strip('"').strip("'")
 
-    from .linear import resolve_team_id
+    from lib.linear import resolve_team_id
     api_key = get_api_key(env)
     env["LINEAR_TEAM_ID"] = resolve_team_id(env["LINEAR_TEAM"], api_key)
 

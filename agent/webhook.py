@@ -11,13 +11,12 @@ from pathlib import Path
 
 from flask import Flask, request, jsonify
 
-from .agent_api import emit_thought, emit_response, emit_error
-from .config import FORGE_ROOT, load_env, load_repos, resolve_repo, get_api_key
-from .constants import (STATE_PLANNING, STATE_IMPLEMENTING,
+from config import FORGE_ROOT, load_env, load_repos, resolve_repo, get_api_key
+from config.constants import (STATE_PLANNING, STATE_IMPLEMENTING,
                         STATE_PLAN_CHANGES_REQUESTED, STATE_CHANGES_REQUESTED,
                         PHASE_PLANNING, PHASE_IMPLEMENTING,
                         PHASE_REVIEW, PHASE_PLAN_REVIEW)
-from .linear import fetch_issue_detail, fetch_issue_state
+from lib.linear import emit_thought, emit_response, emit_error, fetch_issue_detail, fetch_issue_state
 
 app = Flask(__name__)
 

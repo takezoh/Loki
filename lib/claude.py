@@ -3,9 +3,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from .config import FORGE_ROOT, load_config
-from .git import detect_default_branch, diff_stat
-from .linear import fetch_issue_detail, fetch_sub_issues
+from config import FORGE_ROOT, load_config
+from lib.git import detect_default_branch, diff_stat
+from lib.linear import fetch_issue_detail, fetch_sub_issues
 
 
 def setup_sandbox(work_dir: Path, *, log_dir: Path | None = None,
@@ -47,9 +47,6 @@ def run(prompt: str, work_dir: Path, *,
                   log_dir=log_file.parent if log_file else None,
                   extra_write_paths=allow_write)
 
-    # run_env = {**os.environ}
-    # run_env.pop("CLAUDECODE", None)
-
     cmd = [
         "claude", "--print",
         "--no-session-persistence",
@@ -68,14 +65,14 @@ def run(prompt: str, work_dir: Path, *,
         ret = subprocess.run(
             cmd,
             capture_output=True, text=True,
-            cwd=work_dir, #env=run_env,
+            cwd=work_dir,
         )
     else:
         with open(log_file, "w") as log:
             ret = subprocess.run(
                 cmd,
                 stdout=log, stderr=subprocess.STDOUT,
-                cwd=work_dir, #env=run_env,
+                cwd=work_dir,
             )
 
     return ret

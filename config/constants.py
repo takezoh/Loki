@@ -17,7 +17,7 @@ PHASE_IMPLEMENTING = "implementing"
 PHASE_REVIEW = "review"
 PHASE_PLAN_REVIEW = "plan_review"
 
-# Agent Session states (参照用、手動管理不要)
+# Agent Session states
 SESSION_PENDING = "pending"
 SESSION_ACTIVE = "active"
 SESSION_ERROR = "error"

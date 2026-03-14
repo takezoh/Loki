@@ -18,6 +18,14 @@ Add the following statuses at Settings → Teams → Issue statuses & automation
 - Planning, Pending Approval, Plan Changes Requested, Implementing, Changes Requested, Failed
 
 (Backlog, In Review, Done, Cancelled exist by default in Linear)
+
+### OAuth App (Agent API / Webhook)
+
+1. Settings → Account → API → OAuth applications → Create
+2. Webhook URL: `https://<server>:3000/webhook`
+3. Webhook secret を設定
+4. Actor token（actor=application）を生成 → `LINEAR_OAUTH_TOKEN`
+5. Agent 機能を有効化
 ## Prerequisites
 
 - Python 3.10+
@@ -46,7 +54,7 @@ sudo apt-get install bubblewrap socat
    - `log_dir`, `lock_dir`, `worktree_dir` — directory paths (required)
    - Optional: `model`, `budget`, `max_turns`, `max_concurrent`, `sandbox`
 
-3. Edit `config/secrets.env` — set `LINEAR_API_KEY`
+3. Edit `config/secrets.env` — set `LINEAR_API_KEY` (and `LINEAR_OAUTH_TOKEN`, `LINEAR_WEBHOOK_SECRET` if using Webhook)
 
 4. Edit `config/repos.conf` — map labels to repository paths:
    ```
@@ -64,26 +72,24 @@ sudo apt-get install bubblewrap socat
 ## Usage
 
 ```bash
-python -m forge --check  # check environment
-python -m forge          # run
+bin/forge.sh --check             # check environment
+bin/forge.sh                     # single run
+bin/forge.sh --interval 300      # polling daemon (300s interval)
+bin/webhook.sh                   # webhook server
 ```
 
-Or via the wrapper script:
+### systemd
 
 ```bash
-bin/main.sh
-```
+# Polling service
+bin/service-systemd.sh register-polling
+bin/service-systemd.sh start-polling
+bin/service-systemd.sh logs-polling
 
-### Daemon / systemd
-
-```bash
-# Run as daemon (FORGE_POLL_INTERVAL sets interval, default 300s)
-FORGE_POLL_INTERVAL=300 bin/daemon.sh
-
-# Register and manage as systemd service
-bin/service-systemd.sh register
-bin/service-systemd.sh enable
-bin/service-systemd.sh start
+# Webhook service
+bin/service-systemd.sh register-webhook
+bin/service-systemd.sh start-webhook
+bin/service-systemd.sh logs-webhook
 ```
 
 ## Workflow

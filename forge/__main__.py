@@ -120,11 +120,16 @@ def check():
         return 1
 
 
-if "--webhook" in sys.argv:
-    from .webhook import serve
-    serve()
-elif "--check" in sys.argv:
+import argparse
+
+parser = argparse.ArgumentParser(prog="forge")
+parser.add_argument("--check", action="store_true")
+parser.add_argument("--interval", type=int, default=0,
+                    help="polling interval in seconds (0 = single run)")
+args = parser.parse_args()
+
+if args.check:
     sys.exit(check())
 else:
     from .orchestrator import main
-    sys.exit(0 if main() else 1)
+    main(interval=args.interval)

@@ -4,16 +4,22 @@ Linear-driven AI agent. Automatically plans and implements tasks triggered by is
 
 ## Structure
 
-- `forge/` — Python package
-  - `__main__.py` — Entry point (`python -m forge`)
+- `config/` — Configuration + constants
+  - `__init__.py` — Config loading, repo resolution
   - `constants.py` — State/phase constants
-  - `config.py` — Configuration loading, repo resolution
-  - `linear.py` — Linear GraphQL client
-  - `git.py` — git/gh subprocess wrappers
+- `lib/` — External tool integrations
+  - `linear.py` — Linear GraphQL client + Agent API
   - `claude.py` — Claude CLI execution, sandbox settings
+  - `git.py` — git/gh subprocess wrappers
+- `forge/` — Backend (polling daemon)
+  - `__main__.py` — Entry point (`python -m forge`)
   - `orchestrator.py` — Polling, dispatch, PR creation
   - `executor.py` — Per-issue execution (prompt, worktree, post-processing)
-- `bin/` — Shell scripts only (`main.sh`, `daemon.sh`, `service-systemd.sh`, `check_cycle.py`)
+- `agent/` — Frontend (webhook server)
+  - `__main__.py` — Entry point (`python -m agent`)
+  - `webhook.py` — Linear Agent API webhook
+- `bin/` — Shell scripts (`forge.sh`, `webhook.sh`, `service-systemd.sh`)
+- `scripts/` — Utility scripts (`check_cycle.py`)
 - `prompts/` — Prompt templates for each phase
 - `config/settings.json` — Configuration values (git ignored)
 - `config/secrets.env` — Credentials (git ignored)
