@@ -5,6 +5,14 @@ from pathlib import Path
 FORGE_ROOT = Path(__file__).resolve().parent.parent
 
 
+def load_config() -> dict:
+    settings_path = FORGE_ROOT / "config" / "settings.json"
+    if not settings_path.exists():
+        return {}
+    with open(settings_path) as f:
+        return json.load(f)
+
+
 def load_env():
     config_dir = FORGE_ROOT / "config"
 

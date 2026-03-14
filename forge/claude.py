@@ -3,80 +3,32 @@ import os
 import subprocess
 from pathlib import Path
 
-from .config import FORGE_ROOT
+from .config import FORGE_ROOT, load_config
 from .git import detect_default_branch, diff_stat
 from .linear import fetch_issue_detail, fetch_sub_issues
 
-DEFAULT_SANDBOX_SETTINGS = {
-    "sandbox": {
-        "enabled": True,
-        "autoAllowBashIfSandboxed": True,
-        "allowUnsandboxedCommands": False,
-        "filesystem": {
-            "denyRead": [
-                "~/.ssh",
-                "~/.aws",
-                "~/.gnupg",
-                "~/.bash_history",
-                "~/.zsh_history",
-                "~/.netrc",
-                "~/.docker",
-                "~/.kube",
-                "~/.local/share/atuin",
-                "~/.secrets",
-                "~/.1password",
-                "~/.codex",
-                "~/.pki",
-                "~/.config/gcloud",
-                "~/.config/op",
-                "~/.terraform.d",
-                "~/.gsutil",
-                "~/.local/config",
-                "~/.antigravity-server",
-            ],
-        },
-        "network": {
-            "allowManagedDomainsOnly": True,
-            "allowedDomains": [
-                "api.linear.app",
-                "github.com",
-                "*.github.com",
-                "*.githubusercontent.com",
-                "api.anthropic.com",
-            ],
-        },
-    }
-}
 
-def _deep_merge(base: dict, override: dict) -> dict:
-    result = base.copy()
-    for key, val in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(val, dict):
-            result[key] = _deep_merge(result[key], val)
-        else:
-            result[key] = val
-    return result
+def setup_sandbox(work_dir: Path, *, log_dir: Path | None = None,
+                  extra_write_paths: list[str] | None = None):
+    user_config = load_config()
+    settings = user_config.get("claude", {})
 
+    sandbox_settings = settings.get("sandbox")
+    if sandbox_settings:
+        sandbox_settings.setdefault("filesystem", {})
+        fs = sandbox_settings["filesystem"]
+        if log_dir is not None:
+            fs.setdefault("allowWrite", [])
+            path_str = "/" + str(log_dir)
+            if path_str not in fs["allowWrite"]:
+                fs["allowWrite"].append(path_str)
 
-def _load_config() -> dict:
-    settings_path = FORGE_ROOT / "config" / "settings.json"
-    if not settings_path.exists():
-        return {}
-    with open(settings_path) as f:
-        return json.load(f)
-
-
-def setup_sandbox(work_dir: Path, log_dir: Path | None = None,
-                   extra_write_paths: list[str] | None = None):
-    cfg = _load_config()
-    settings = json.loads(json.dumps(DEFAULT_SANDBOX_SETTINGS))
-    if "sandbox" in cfg:
-        settings["sandbox"] = _deep_merge(settings["sandbox"], cfg["sandbox"])
-    allow_write = [str(log_dir)] if log_dir else []
-    if extra_write_paths:
-        allow_write.extend(extra_write_paths)
-    settings["sandbox"]["filesystem"]["allowWrite"] = allow_write
-    settings["sandbox"]["filesystem"]["denyRead"].append(str(FORGE_ROOT / "config"))
+        if extra_write_paths:
+            fs.setdefault("allowWrite", [])
+            for p in extra_write_paths:
+                path_str = "/" + str(p) + "/"
+                if path_str not in fs["allowWrite"]:
+                    fs["allowWrite"].append(path_str)
 
     claude_dir = work_dir / ".claude"
     claude_dir.mkdir(exist_ok=True)
@@ -87,13 +39,15 @@ def setup_sandbox(work_dir: Path, log_dir: Path | None = None,
 def run(prompt: str, work_dir: Path, *,
         model: str, max_turns: str, budget: str = "1.00",
         disallowed_tools: list[str] | None = None,
-        log_dir: Path | None = None, log_file: Path | None = None,
-        extra_write_paths: list[str] | None = None,
-        capture_output: bool = False):
-    setup_sandbox(work_dir, log_dir, extra_write_paths=extra_write_paths)
+        log_file: Path | None = None,
+        capture_output: bool = False,
+        allow_write: list[str] | None = None):
+    setup_sandbox(work_dir,
+                  log_dir=log_file.parent if log_file else None,
+                  extra_write_paths=allow_write)
 
-    run_env = {**os.environ}
-    run_env.pop("CLAUDECODE", None)
+    # run_env = {**os.environ}
+    # run_env.pop("CLAUDECODE", None)
 
     cmd = [
         "claude", "--print",
@@ -102,6 +56,7 @@ def run(prompt: str, work_dir: Path, *,
         "--max-turns", max_turns,
         "--model", model,
         "-p", prompt,
+        "--output-format", "json",
     ]
     if disallowed_tools:
         cmd.extend(["--disallowedTools", ",".join(disallowed_tools)])
@@ -110,14 +65,14 @@ def run(prompt: str, work_dir: Path, *,
         ret = subprocess.run(
             cmd,
             capture_output=True, text=True,
-            cwd=work_dir, env=run_env,
+            cwd=work_dir, #env=run_env,
         )
     else:
         with open(log_file, "w") as log:
             ret = subprocess.run(
                 cmd,
                 stdout=log, stderr=subprocess.STDOUT,
-                cwd=work_dir, env=run_env,
+                cwd=work_dir, #env=run_env,
             )
 
     return ret

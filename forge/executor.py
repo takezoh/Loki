@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from .config import FORGE_ROOT, load_env
+from .config import FORGE_ROOT, load_env, load_config
 from .constants import (STATE_PENDING_APPROVAL, STATE_DONE, STATE_IN_REVIEW,
                         STATE_FAILED, PHASE_PLANNING, PHASE_IMPLEMENTING,
                         PHASE_REVIEW, PHASE_PLAN_REVIEW)
@@ -35,6 +35,7 @@ DISALLOWED_TOOLS_MAP = {
         "mcp__linear-server__list_documents",
     ],
 }
+
 
 def resolve_config(phase: str, env: dict) -> dict:
     model_key = f"FORGE_MODEL_{phase.upper()}"
@@ -190,6 +191,7 @@ def post_execute(phase, issue_id, issue_identifier, parent_identifier, repo,
 def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
         parent_issue_id: str = "", parent_identifier: str = ""):
     env = load_env()
+
     log_dir = Path(env["FORGE_LOG_DIR"])
     lock_dir = Path(env["FORGE_LOCK_DIR"])
     log_file = log_dir / f"{issue_identifier}-{datetime.now():%Y%m%d-%H%M%S}.log"
@@ -211,8 +213,8 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
 
         cfg = resolve_config(phase, env)
         ret = run_claude(prompt, work_dir, **cfg,
-                         log_dir=log_dir, log_file=log_file,
-                         extra_write_paths=extra_write or None)
+                         log_file=log_file,
+                         allow_write=extra_write)
 
         if ret.returncode != 0:
             mark_failed(issue_id, log_file)
