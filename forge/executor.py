@@ -231,7 +231,7 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
                                             log_file, issue_id)
 
     try:
-        extra_write = []
+        extra_write = [str(repo / ".git" / "worktrees")]
         if parent_identifier:
             extra_write.append(str(worktree_base / repo.name / parent_identifier))
 
