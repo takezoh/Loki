@@ -39,9 +39,15 @@ def create_parent_pr(parent_identifier: str, parent_title: str, repo_path: str,
 
     pr_lock.write_text(parent_identifier)
 
+    parent_worktree = Path(env["FORGE_WORKTREE_DIR"]) / Path(repo_path).name / parent_identifier
+    if not parent_worktree.exists():
+        parent_worktree.parent.mkdir(parents=True, exist_ok=True)
+        worktree_add(repo_path, str(parent_worktree), parent_identifier)
+
     log(f"  Generating PR description for {parent_identifier}...")
     title, body = generate_pr_body(parent_id, parent_identifier, repo_path,
-                                   sub_issues or [], env)
+                                   sub_issues or [], env,
+                                   work_dir=str(parent_worktree))
 
     default_branch = detect_default_branch(repo_path)
     ret = pr_create(repo_path, f"{parent_identifier}: {title}", body,

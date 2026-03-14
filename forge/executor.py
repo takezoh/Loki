@@ -129,11 +129,16 @@ def prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id, parent_id
 
 
 def setup_worktree(phase, repo, issue_identifier, parent_identifier, worktree_base, log_file, issue_id):
-    if phase in (PHASE_PLANNING, PHASE_PLAN_REVIEW):
-        return repo, None
-
     worktree_dir = worktree_base / repo.name / issue_identifier
     worktree_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    if phase in (PHASE_PLANNING, PHASE_PLAN_REVIEW):
+        default_branch = detect_default_branch(str(repo))
+        ret = worktree_add(str(repo), str(worktree_dir), default_branch, detach=True)
+        if ret.returncode != 0:
+            mark_failed(issue_id, log_file)
+            sys.exit(1)
+        return worktree_dir, worktree_dir
 
     if phase == PHASE_IMPLEMENTING:
         base_branch = parent_identifier if parent_identifier else detect_default_branch(str(repo))

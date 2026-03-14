@@ -79,7 +79,8 @@ def run(prompt: str, work_dir: Path, *,
 
 
 def generate_pr_body(parent_id: str, parent_identifier: str, repo_path: str,
-                     sub_issues: list[dict], env: dict) -> tuple[str, str]:
+                     sub_issues: list[dict], env: dict,
+                     work_dir: str | None = None) -> tuple[str, str]:
     prompt_file = FORGE_ROOT / "prompts" / "pr.md"
     prompt = prompt_file.read_text()
 
@@ -97,7 +98,7 @@ def generate_pr_body(parent_id: str, parent_identifier: str, repo_path: str,
     default_branch = detect_default_branch(repo_path)
     prompt = prompt.replace("{{DIFF_STAT}}", diff_stat(repo_path, default_branch, parent_identifier))
 
-    ret = run(prompt, Path(repo_path),
+    ret = run(prompt, Path(work_dir or repo_path),
               model=env.get("FORGE_MODEL_PR", env["FORGE_MODEL"]),
               max_turns="1", capture_output=True)
     if ret.returncode != 0:

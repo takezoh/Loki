@@ -37,9 +37,12 @@ def create_branch(repo_path: str, branch: str, base: str) -> subprocess.Complete
 
 
 def worktree_add(repo_path: str, worktree_dir: str, branch: str,
-                 new_branch: str | None = None) -> subprocess.CompletedProcess:
+                 new_branch: str | None = None,
+                 detach: bool = False) -> subprocess.CompletedProcess:
     cmd = ["git", "-C", repo_path, "worktree", "add"]
-    if new_branch:
+    if detach:
+        cmd.extend(["--detach", worktree_dir, branch])
+    elif new_branch:
         cmd.extend([worktree_dir, "-b", new_branch, branch])
     else:
         cmd.extend([worktree_dir, branch])
