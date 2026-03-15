@@ -1,4 +1,5 @@
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -17,13 +18,18 @@ from lib.linear import poll, fetch_sub_issues, update_issue_state
 from forge.queue import dequeue_all
 
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.lock$")
+
+
 def count_locks(lock_dir: Path) -> int:
-    return len(list(lock_dir.glob("*.lock")))
+    return sum(1 for f in lock_dir.glob("*.lock") if _UUID_RE.match(f.name))
 
 
 def clean_stale_locks(lock_dir: Path, timeout_min: int):
     now = time.time()
     for lock in lock_dir.glob("*.lock"):
+        if not _UUID_RE.match(lock.name):
+            continue
         age_min = (now - lock.stat().st_mtime) / 60
         if age_min > timeout_min:
             lock.unlink(missing_ok=True)
