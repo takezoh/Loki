@@ -131,7 +131,6 @@ stateDiagram-v2
 | Backlog | Backlog | Human | Not started |
 | Planning | Started | Agent | Creating sub-issues and plan |
 | Pending Approval | Started | Human | Reviewing the plan |
-| Plan Changes Requested | Started | Human | Human moves issue back to Planning to request plan revisions |
 | Implementing | Started | Agent | Building + PR creation |
 | In Review | Started | Human | Reviewing PRs |
 | Changes Requested | Started | Agent | Fixing PR review feedback |
