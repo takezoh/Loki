@@ -22,50 +22,45 @@ Launch an Agent tool (`subagent_type: Plan`, `model: opus`) and delegate codebas
 
 Include the following in the prompt:
 - Issue title, description, labels
-- Instruction: "Investigate the codebase and create an implementation plan broken into 1-PR-sized work units"
-- For each work unit, output:
-  - Title
-  - Implementation approach (what, why, which files)
-  - Target files
-  - Dependencies (ordering relative to other work units)
+- Instruction: "Investigate the codebase and create an implementation plan. Focus on what needs to change, why, and which files are involved. Do NOT break it into sub-issues — just produce a coherent plan."
 
-### 3. Create Document
+### 3. Self-Review
 
-Convert the Plan agent's output into a Linear document using `create_document`.
+Evaluate the Plan agent's output against the issue's intent:
+- Does the plan address the issue's goals and requirements?
+- Are there gaps, misunderstandings, or scope creep?
+- Is the approach technically sound?
+
+If there are significant problems, provide specific feedback and re-launch the Plan agent (maximum 2 retries). Include your feedback and the previous plan in the new prompt.
+
+### 4. Create Document
+
+Convert the final plan into a Linear document using `create_document`.
 
 - `title`: `"Plan: {{ISSUE_IDENTIFIER}} - <issue title>"`
 - `issue`: `{{ISSUE_IDENTIFIER}}`
 - `content`: Full Markdown of the plan
 
-### 4. Create Sub-issues
+### 5. Approval Decision
 
-Convert each work unit into a sub-issue using `save_issue`.
+Evaluate the plan against these criteria and include exactly one of the following markers in your final response:
 
-- `parentId`: `{{ISSUE_ID}}`
-- `description`: Copy the implementation approach from the Plan agent output as-is
-- Use actual newline characters (not literal `\n`)
-- Apply the same labels as the parent issue
-- Set `blockedBy` / `blocks` relations if dependencies exist
+**AUTO_APPROVED** — use when ALL of the following are true:
+- Scope is clear and well-defined
+- No architectural decisions required (uses existing patterns)
+- Requirements are unambiguous
+- Plan stays within the bounds of the issue's request
 
-### 5. Dependency Cycle Check
+**NEEDS_HUMAN_REVIEW** — use when ANY of the following are true:
+- Design decisions or trade-offs need human input
+- Requirements are ambiguous or underspecified
+- Scope is large or crosses multiple subsystems
+- Plan exceeds what the issue explicitly requested
 
-After creating sub-issues, verify there are no cycles in the dependency graph:
-
-```bash
-python {{FORGE_ROOT}}/scripts/check_cycle.py <parent_issue_id>
-```
-
-- If output is "OK" → proceed to step 6
-- If a cycle is detected, fix the `blockedBy` / `blocks` relations and re-run
-
-### 6. Completion
-
-- Output the plan summary (sub-issue list + dependencies) as your final response text
-- Status update to "Pending Approval" is handled automatically after completion
+Output the marker on its own line at the end of your response.
 
 ## Notes
 
 - Do not modify any code
 - The main session (you) must not investigate code (leave that to the Plan agent)
-- Split sub-issues into implementable units (not too large, not too small)
 - Consider existing tests and CI mechanisms when planning

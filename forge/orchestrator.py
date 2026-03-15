@@ -11,6 +11,7 @@ from pathlib import Path
 from config import FORGE_ROOT, load_env, load_repos, resolve_repo
 from config.constants import (STATE_PLANNING, STATE_IMPLEMENTING,
                         STATE_PLAN_CHANGES_REQUESTED, STATE_CHANGES_REQUESTED,
+                        STATE_PLAN_APPROVED,
                         STATE_IN_PROGRESS, STATE_IN_REVIEW, STATE_DONE)
 from lib.git import branch_exists, create_branch, detect_default_branch, worktree_add, worktree_remove, pr_create
 from lib.claude import generate_pr_body
@@ -176,6 +177,13 @@ def run_once(env: dict, session_map: dict[str, dict] | None = None) -> bool:
         log(f"Error polling {STATE_IMPLEMENTING}: {e}")
         implementing_issues = []
 
+    log("Polling Plan Approved issues...")
+    try:
+        plan_approved_issues = poll(STATE_PLAN_APPROVED, env=env)
+    except Exception as e:
+        log(f"Error polling {STATE_PLAN_APPROVED}: {e}")
+        plan_approved_issues = []
+
     log("Polling Plan Changes Requested issues...")
     try:
         plan_review_issues = poll(STATE_PLAN_CHANGES_REQUESTED, env=env)
@@ -197,6 +205,15 @@ def run_once(env: dict, session_map: dict[str, dict] | None = None) -> bool:
         for issue in planning_issues:
             sid = session_map.get(issue["id"], {}).get("session_id", "")
             p = dispatch_issue("planning", issue, lock_dir, max_concurrent, repos,
+                               session_id=sid)
+            if p:
+                dispatched = True
+
+    if plan_approved_issues:
+        log(f"{len(plan_approved_issues)} plan approved issue(s) found")
+        for issue in plan_approved_issues:
+            sid = session_map.get(issue["id"], {}).get("session_id", "")
+            p = dispatch_issue("subissue_creation", issue, lock_dir, max_concurrent, repos,
                                session_id=sid)
             if p:
                 dispatched = True
