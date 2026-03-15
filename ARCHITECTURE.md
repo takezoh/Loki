@@ -26,8 +26,9 @@ Loki is an agent system that automatically executes tasks via Claude Code CLI, t
 | Module | Role |
 |--------|------|
 | `__main__.py` | Entry point. `--check` for environment validation, `--interval N` to override polling interval (default: 300s) |
-| `orchestrator.py` | Main loop. Polling → queue consumption → lock management → `executor` subprocess launch → PR creation |
+| `orchestrator.py` | Main loop. Polling → queue consumption → lock lifecycle → `executor` subprocess launch |
 | `executor.py` | Per-issue execution unit. Prompt assembly → worktree setup → Claude execution → post-processing (status update, comment posting) |
+| `pr_creator.py` | PR body generation and GitHub PR creation. Launched as subprocess by orchestrator |
 | `queue.py` | File-based queue. `enqueue` / `dequeue_all` / `wake` (SIGUSR1) |
 
 ### agent/ (Sleipnir — Frontend)
@@ -46,18 +47,18 @@ Loki is an agent system that automatically executes tasks via Claude Code CLI, t
 3. Executor: fetches issue info → generates planning prompt → runs Claude
 4. Claude delegates to Plan agent (code investigation) → self-reviews the plan (up to 2 retries) → creates plan document
 5. Claude outputs `AUTO_APPROVED` or `NEEDS_HUMAN_REVIEW` marker
-6. Executor parses the marker and transitions to `Plan Approved` or `Pending Approval`
+6. Executor parses the marker and transitions to `Implementing` or `Pending Approval`
 
 ### Plan Review
 
-1. Human changes status to `Plan Changes Requested` (feedback via comment)
+1. Human changes status to `Plan Changes Requested` (issue transitions back to `Planning`, dispatched as plan_review)
 2. Executor: fetches feedback + plan document → generates plan_review prompt → runs Claude
 3. Claude revises the plan document and outputs approval marker
-4. Executor transitions to `Plan Approved` or `Pending Approval`
+4. Executor transitions to `Implementing` or `Pending Approval`
 
 ### Sub-issue Creation
 
-1. Orchestrator polls for issues with `Plan Approved` status
+1. Orchestrator detects `Implementing` issue with no sub-issues
 2. `dispatch_issue("subissue_creation")` → launches executor
 3. Executor: fetches issue detail + plan document → generates subissue_creation prompt → runs Claude
 4. Claude breaks plan into 1-PR-sized sub-issues with dependency relations, runs cycle check
@@ -67,13 +68,13 @@ Loki is an agent system that automatically executes tasks via Claude Code CLI, t
 
 1. Orchestrator polls for parent issues with `Implementing` status
 2. Resolves sub-issue dependencies and identifies `ready` sub-issues
-3. Creates parent branch and parent worktree (if not already created)
-4. For each ready sub-issue: `dispatch_issue` → launches executor
-5. executor: creates sub-issue worktree from parent branch → implementing prompt → launches Claude as conductor
-6. conductor launches implementer subagent (code changes) → reviewer subagent (review) → feedback loop → conductor commits
-7. executor merges sub-issue branch into parent branch
+3. For each ready sub-issue: `dispatch_issue` → launches executor
+4. Executor: creates parent branch if needed
+5. Executor: creates sub-issue worktree from parent branch → implementing prompt → launches Claude as conductor
+6. Conductor launches implementer subagent (code changes) → reviewer subagent (review) → feedback loop → conductor commits
+7. Executor: creates parent worktree if needed (under merge lock) → merges sub-issue branch into parent branch
 8. Transitions sub-issue to `Done`
-9. When all sub-issues are complete, orchestrator generates PR body and creates GitHub PR → transitions parent issue to `In Review`
+9. When all sub-issues are complete, orchestrator launches `forge.pr_creator` subprocess → generates PR body → creates GitHub PR → transitions parent issue to `In Review`
 
 ### Review
 
@@ -94,7 +95,7 @@ forge (daemon)  → consume_queue(queue_dir) → merged into session_map → dis
 ```
 
 - **Queue file**: `{queue_dir}/{issue_id}.json` — JSON payload (`issue_id`, `session_id`, `phase`)
-- **SIGUSR1 wake**: Sets the daemon's `threading.Event`, causing immediate return from sleep
+- **SIGUSR1 / SIGCHLD wake**: Sets the daemon's `threading.Event`, causing immediate return from sleep
 - **session_id**: For tracking Agent API sessions. Used when triggered via webhook
 
 ### Locks
@@ -102,7 +103,9 @@ forge (daemon)  → consume_queue(queue_dir) → merged into session_map → dis
 - **Execution lock**: `{lock_dir}/{issue_id}.lock` — Prevents duplicate execution of the same issue
 - **PR lock**: `{lock_dir}/pr-{identifier}.lock` — Prevents duplicate PR creation
 - **Concurrency limit**: `max_concurrent` limits the number of parallel executors (counted by lock files)
-- **Zombie reaping**: `reap_children()` reaps terminated child processes via `os.waitpid(-1, WNOHANG)`
+- **Lock reaping**: `reap_children(lock_dir)` checks lock files against running PIDs and removes locks for terminated processes. Triggered by SIGCHLD handler
+- **SIGCHLD handler**: On child process termination, sets wake event and triggers lock reaping. Note: SIGCHLD can interrupt `subprocess.run` with `EINTR`; callers should handle this
+- **Lock ownership**: Only orchestrator creates and removes locks; executor does not manage lock files
 - **Timeout**: Locks older than `lock_timeout_min` are automatically removed by `clean_stale_locks`
 
 ## Sandbox & Permissions

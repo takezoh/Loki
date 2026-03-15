@@ -13,8 +13,9 @@ Linear-driven AI agent. Automatically plans and implements tasks triggered by is
   - `git.py` — git/gh subprocess wrappers
 - `forge/` — Backend (polling daemon)
   - `__main__.py` — Entry point (`python -m forge`)
-  - `orchestrator.py` — Polling, dispatch, PR creation
+  - `orchestrator.py` — Polling, dispatch, lock lifecycle
   - `executor.py` — Per-issue execution (prompt, worktree, post-processing)
+  - `pr_creator.py` — PR body generation and GitHub PR creation
   - `queue.py` — File-based queue for async dispatch (enqueue/dequeue/wake)
 - `agent/` — Sleipnir: webhook server (frontend)
   - `__main__.py` — Entry point (`python -m agent`)
@@ -30,7 +31,7 @@ Linear-driven AI agent. Automatically plans and implements tasks triggered by is
 
 1. Planning: Parent issue → code investigation → plan creation → self-review → auto-approve or Pending Approval
 2. Plan Review: Pending Approval ⇄ Plan Changes Requested (human feedback → plan revision → auto-approve or Pending Approval)
-3. Sub-issue Creation: Plan Approved → plan to sub-issues → dependency setup → Implementing
+3. Sub-issue Creation: Implementing (no sub-issues) → plan to sub-issues → dependency setup → Implementing
 4. Implementing: Parent issue → sub-issue dependency resolution → worktree isolation → conductor pattern (implementer + reviewer) → PR → In Review
 5. Review: Changes Requested → fix based on PR review comments → In Review
 
