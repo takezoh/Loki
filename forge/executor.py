@@ -135,6 +135,10 @@ def prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id, parent_id
         prompt = prompt.replace("{{PR_DIFF}}", pr_diff(repo_path, issue_identifier))
 
         review_comments = fetch_pr_review_comments(issue_identifier, repo_path)
+        issue_comments = fetch_issue_comments(issue_id)
+        if issue_comments:
+            linear_parts = [f"[Linear comment by {c['user']}]\n{c['body']}" for c in issue_comments]
+            review_comments += ("\n\n" if review_comments else "") + "\n\n".join(linear_parts)
         prompt = prompt.replace("{{REVIEW_COMMENTS}}", review_comments or "(no comments)")
 
     elif phase == PHASE_PLAN_REVIEW:
@@ -269,6 +273,16 @@ def post_execute(phase, issue_id, issue_identifier, parent_issue_id, parent_iden
             create_comment(parent_issue_id, summary)
 
     elif phase == PHASE_REVIEW:
+        comment_body, raw_json = parse_claude_result(log_file)
+        if work_dir and base_branch and not has_new_commits(str(work_dir), base_branch):
+            if comment_body:
+                create_comment(issue_id, comment_body)
+            mark_failed(issue_id, log_file, reason="No commits were created during review.",
+                         session_id=session_id, api_key=api_key)
+            sys.exit(1)
+        push(str(work_dir), issue_identifier)
+        if comment_body:
+            create_comment(issue_id, comment_body)
         update_issue_state(issue_id, STATE_IN_REVIEW)
 
     if parent_identifier:
@@ -356,6 +370,8 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
         base_branch = None
         if phase == PHASE_IMPLEMENTING:
             base_branch = parent_identifier if parent_identifier else detect_default_branch(str(repo))
+        elif phase == PHASE_REVIEW:
+            base_branch = f"origin/{issue_identifier}"
 
         post_execute(phase, issue_id, issue_identifier, parent_issue_id,
                      parent_identifier, repo, worktree_base, lock_dir, log_file,

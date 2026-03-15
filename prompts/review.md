@@ -16,7 +16,7 @@ You are addressing review feedback on a pull request.
 ## PR Diff (current state)
 {{PR_DIFF}}
 
-## Review Comments
+## Review Comments (GitHub PR + Linear Issue)
 {{REVIEW_COMMENTS}}
 
 ## Instructions
@@ -26,7 +26,6 @@ You are addressing review feedback on a pull request.
 3. Do NOT refactor or change code beyond what reviewers requested
 4. Run relevant tests after changes
 5. Commit: `{{ISSUE_IDENTIFIER}}: address review feedback`
-6. Push: `git push origin {{ISSUE_IDENTIFIER}}`
 
 ## Notes
 - You are on the parent branch ({{ISSUE_IDENTIFIER}}) — the PR already exists
