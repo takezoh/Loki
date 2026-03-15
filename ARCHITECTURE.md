@@ -44,14 +44,24 @@ forge is an agent system that automatically executes tasks via Claude Code CLI, 
 1. Orchestrator polls for issues with `Planning` status
 2. `dispatch_issue` → launches `forge.executor` subprocess (acquires lock)
 3. Executor: fetches issue info → generates planning prompt → runs Claude
-4. Claude investigates the codebase and creates sub-issues
-5. Transitions parent issue to `Pending Approval`
+4. Claude delegates to Plan agent (code investigation) → self-reviews the plan (up to 2 retries) → creates plan document
+5. Claude outputs `AUTO_APPROVED` or `NEEDS_HUMAN_REVIEW` marker
+6. Executor parses the marker and transitions to `Plan Approved` or `Pending Approval`
 
 ### Plan Review
 
 1. Human changes status to `Plan Changes Requested` (feedback via comment)
-2. Executor: fetches feedback → generates plan_review prompt → runs Claude
-3. Claude revises the plan and transitions back to `Pending Approval`
+2. Executor: fetches feedback + plan document → generates plan_review prompt → runs Claude
+3. Claude revises the plan document and outputs approval marker
+4. Executor transitions to `Plan Approved` or `Pending Approval`
+
+### Sub-issue Creation
+
+1. Orchestrator polls for issues with `Plan Approved` status
+2. `dispatch_issue("subissue_creation")` → launches executor
+3. Executor: fetches issue detail + plan document → generates subissue_creation prompt → runs Claude
+4. Claude breaks plan into 1-PR-sized sub-issues with dependency relations, runs cycle check
+5. Executor verifies sub-issues exist, corrects states to `Todo`, transitions parent to `Implementing`
 
 ### Implementing
 
@@ -112,9 +122,9 @@ Settings in `config/settings.json`:
 | Key | Type | Description |
 |-----|------|-------------|
 | `team` | string | Linear team name (required; `team_id` is resolved automatically via API) |
-| `budget` | object | Per-phase USD budget. `poll`, `planning`, `implementing`, `plan_review`, `review` |
-| `max_turns` | object | Per-phase maximum turns. `planning`, `implementing`, `plan_review`, `review` |
-| `model` | object | Per-phase model. `default`, `planning`, `implementing`, `plan_review`, `pr`, `review` |
+| `budget` | object | Per-phase USD budget. `poll`, `planning`, `implementing`, `plan_review`, `subissue_creation`, `review` |
+| `max_turns` | object | Per-phase maximum turns. `planning`, `implementing`, `plan_review`, `subissue_creation`, `review` |
+| `model` | object | Per-phase model. `default`, `planning`, `implementing`, `plan_review`, `subissue_creation`, `pr`, `review` |
 | `log_dir` | string | Log output directory (required) |
 | `lock_dir` | string | Lock file directory (required) |
 | `worktree_dir` | string | Git worktree base directory (required) |

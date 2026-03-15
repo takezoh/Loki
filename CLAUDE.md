@@ -28,10 +28,11 @@ Linear-driven AI agent. Automatically plans and implements tasks triggered by is
 
 ## Flow
 
-1. Planning: Parent issue → code investigation → sub-issue creation → Pending Approval
-2. Plan Review: Pending Approval ⇄ Plan Changes Requested (human feedback → incremental plan revision)
-3. Implementing: Parent issue → sub-issue dependency resolution → worktree isolation → conductor pattern (implementer + reviewer) → PR → In Review
-4. Review: Changes Requested → fix based on PR review comments → In Review
+1. Planning: Parent issue → code investigation → plan creation → self-review → auto-approve or Pending Approval
+2. Plan Review: Pending Approval ⇄ Plan Changes Requested (human feedback → plan revision → auto-approve or Pending Approval)
+3. Sub-issue Creation: Plan Approved → plan to sub-issues → dependency setup → Implementing
+4. Implementing: Parent issue → sub-issue dependency resolution → worktree isolation → conductor pattern (implementer + reviewer) → PR → In Review
+5. Review: Changes Requested → fix based on PR review comments → In Review
 
 Webhook → `queue.enqueue()` → SIGUSR1 wake → orchestrator picks up queued items on next cycle.
 
