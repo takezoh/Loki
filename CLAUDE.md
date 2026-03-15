@@ -38,3 +38,7 @@ Linear-driven AI agent. Automatically plans and implements tasks triggered by is
 Webhook → `queue.enqueue()` → SIGUSR1 wake → orchestrator picks up queued items on next cycle.
 
 See `ARCHITECTURE.md` for detailed technical documentation.
+
+## Conventions
+
+- Commit messages and PR titles/descriptions must be written in English.
