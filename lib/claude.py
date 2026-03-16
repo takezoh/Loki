@@ -80,13 +80,14 @@ def run(prompt: str, work_dir: Path, *,
         "--max-budget-usd", budget,
         "--max-turns", max_turns,
         "--model", model,
-        "-p", prompt,
+        "-p", "-",
         "--output-format", "json",
     ]
 
     if capture_output:
         proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True,
             cwd=work_dir,
@@ -94,7 +95,7 @@ def run(prompt: str, work_dir: Path, *,
         )
         _current_process = proc
         try:
-            stdout, stderr = proc.communicate(timeout=timeout)
+            stdout, stderr = proc.communicate(input=prompt, timeout=timeout)
         except subprocess.TimeoutExpired:
             os.killpg(proc.pid, signal.SIGKILL)
             proc.wait()
@@ -106,12 +107,16 @@ def run(prompt: str, work_dir: Path, *,
         with open(log_file, "w") as log:
             proc = subprocess.Popen(
                 cmd,
+                stdin=subprocess.PIPE,
                 stdout=log, stderr=subprocess.STDOUT,
+                text=True,
                 cwd=work_dir,
                 start_new_session=True,
             )
             _current_process = proc
             try:
+                proc.stdin.write(prompt)
+                proc.stdin.close()
                 proc.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 os.killpg(proc.pid, signal.SIGKILL)
