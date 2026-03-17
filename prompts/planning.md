@@ -16,13 +16,19 @@ Use the following pre-fetched issue details:
 {{ISSUE_DETAIL}}
 ```
 
+### Reference Documents (from attachments)
+```json
+{{REFERENCE_DOCUMENTS}}
+```
+
 ### 2. Delegate to Plan Agent
 
 Launch an Agent tool (`subagent_type: Plan`, `model: opus`) and delegate codebase investigation and planning.
 
 Include the following in the prompt:
 - Issue title, description, labels
-- Instruction: "Investigate the codebase and create an implementation plan. Focus on what needs to change, why, and which files are involved. Do NOT break it into sub-issues — just produce a coherent plan."
+- Reference Documents (if provided): include them so the Plan agent can base the plan on these documents
+- Instruction: "Investigate the codebase and create an implementation plan. If Reference Documents are provided, base your plan on them. Focus on what needs to change, why, and which files are involved. Do NOT break it into sub-issues — just produce a coherent plan."
 - Constraint: "Return the full plan as text in your response. Do NOT create or update Linear documents or issues — that is handled by the caller."
 
 ### 3. Self-Review

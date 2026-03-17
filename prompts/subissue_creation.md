@@ -10,6 +10,11 @@ You are an agent that creates sub-issues from an approved implementation plan.
 {{ISSUE_DETAIL}}
 ```
 
+## Reference Documents
+```json
+{{REFERENCE_DOCUMENTS}}
+```
+
 ## Plan Document
 ```json
 {{PLAN_DOCUMENTS}}

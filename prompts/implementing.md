@@ -26,6 +26,11 @@ You do not write code yourself — use the Agent tool to launch implementer and 
 {{PLAN_DOCUMENTS}}
 ```
 
+**Reference documents (from parent issue):**
+```json
+{{REFERENCE_DOCUMENTS}}
+```
+
 **Sub-issue comments:**
 ```json
 {{SUB_ISSUE_COMMENTS}}

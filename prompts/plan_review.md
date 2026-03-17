@@ -9,6 +9,11 @@ You are revising an existing implementation plan based on reviewer feedback.
 {{ISSUE_DETAIL}}
 ```
 
+## Reference Documents
+```json
+{{REFERENCE_DOCUMENTS}}
+```
+
 ## Current Plan Document
 ```json
 {{PLAN_DOCUMENTS}}

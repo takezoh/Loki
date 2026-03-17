@@ -1,3 +1,4 @@
+import re
 import sys
 import time
 
@@ -300,6 +301,13 @@ query($issueId: String!) {
         parent { name }
       }
     }
+    attachments {
+      nodes {
+        id
+        title
+        url
+      }
+    }
   }
 }
 """
@@ -344,6 +352,10 @@ def fetch_issue_detail(issue_id: str, env=None) -> dict:
     issue = data.get("data", {}).get("issue", {})
     label_nodes = issue.get("labels", {}).get("nodes", [])
     labels = parse_labels(label_nodes)
+    attachments = [
+        {"id": a["id"], "title": a["title"], "url": a["url"]}
+        for a in issue.get("attachments", {}).get("nodes", [])
+    ]
     return {
         "id": issue.get("id", ""),
         "identifier": issue.get("identifier", ""),
@@ -351,7 +363,49 @@ def fetch_issue_detail(issue_id: str, env=None) -> dict:
         "description": issue.get("description", ""),
         "labels": labels,
         "label_nodes": label_nodes,
+        "attachments": attachments,
     }
+
+
+DOCUMENT_QUERY = """
+query($slugId: String!) {
+  documents(filter: { slugId: { eq: $slugId } }, first: 1) {
+    nodes {
+      id
+      title
+      content
+    }
+  }
+}
+"""
+
+
+def fetch_document(slug_id: str, env=None) -> dict | None:
+    if env is None:
+        env = load_env()
+    api_key = get_api_key(env)
+    data = graphql(api_key, DOCUMENT_QUERY, {"slugId": slug_id})
+    nodes = data.get("data", {}).get("documents", {}).get("nodes", [])
+    if not nodes:
+        return None
+    doc = nodes[0]
+    return {"id": doc["id"], "title": doc["title"], "content": doc["content"]}
+
+
+_DOC_URL_RE = re.compile(r"https://linear\.app/[^/]+/document/.+-([0-9a-f]+)$")
+
+
+def resolve_attachment_documents(attachments: list[dict], env=None) -> list[dict]:
+    docs = []
+    for att in attachments:
+        m = _DOC_URL_RE.match(att.get("url", ""))
+        if not m:
+            continue
+        slug_id = m.group(1)
+        doc = fetch_document(slug_id, env=env)
+        if doc:
+            docs.append(doc)
+    return docs
 
 
 def fetch_issue_comments(issue_id: str, env=None) -> list[dict]:

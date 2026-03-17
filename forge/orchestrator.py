@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from config import FORGE_ROOT, load_env, load_repos, resolve_repo
+from config import FORGE_ROOT, load_env, load_repos, resolve_repo, resolve_base_branch
 from config.constants import (STATE_PLANNING, STATE_IMPLEMENTING,
                         STATE_CHANGES_REQUESTED,
                         STATE_IN_PROGRESS, STATE_DONE,
@@ -122,6 +122,8 @@ def dispatch_issue(phase: str, issue: dict, lock_dir: Path, max_concurrent: int,
         log(f"  Skip {identifier} (repo not found: {repo_path}): {title}")
         return None
 
+    base_branch = resolve_base_branch(labels)
+
     log(f"  Start {identifier} ({phase}): {title}")
 
     cmd = [sys.executable, "-m", "forge.executor", phase, issue_id, identifier, repo_path]
@@ -131,6 +133,8 @@ def dispatch_issue(phase: str, issue: dict, lock_dir: Path, max_concurrent: int,
         cmd.append(parent_identifier)
     if session_id:
         cmd.extend(["--session-id", session_id])
+    if base_branch:
+        cmd.extend(["--base-branch", base_branch])
 
     proc = subprocess.Popen(cmd, cwd=str(FORGE_ROOT))
     lock_content = f"{identifier}\n{proc.pid}\n{session_id}"

@@ -97,3 +97,10 @@ def resolve_repo(labels: list[str], repos: dict[str, str]) -> str | None:
             key = label.removeprefix("repo:")
             return repos.get(key)
     return None
+
+
+def resolve_base_branch(labels: list[str]) -> str:
+    for label in labels:
+        if label.startswith("branch:"):
+            return label.removeprefix("branch:")
+    return ""

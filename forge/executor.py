@@ -16,7 +16,7 @@ from config.constants import (STATE_PENDING_APPROVAL,
 from lib.linear import (emit_thought, emit_action, emit_response, emit_error,
                         update_issue_state, create_comment, create_attachment,
                         fetch_issue_detail, fetch_issue_comments, fetch_sub_issues,
-                        update_issue_labels)
+                        update_issue_labels, resolve_attachment_documents)
 from lib.git import (detect_default_branch, has_new_commits, worktree_add,
                   worktree_remove, merge, merge_abort, push, delete_branch,
                   branch_exists, create_branch,
@@ -125,12 +125,17 @@ def prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id, parent_id
     if phase == PHASE_PLANNING:
         issue_detail = fetch_issue_detail(issue_id)
         prompt = prompt.replace("{{ISSUE_DETAIL}}", json.dumps(issue_detail, indent=2, ensure_ascii=False))
+        ref_docs = resolve_attachment_documents(issue_detail.get("attachments", []))
+        prompt = prompt.replace("{{REFERENCE_DOCUMENTS}}", json.dumps(ref_docs, indent=2, ensure_ascii=False) if ref_docs else "[]")
     elif phase == PHASE_REVIEW:
         issue_detail = fetch_issue_detail(issue_id)
         prompt = prompt.replace("{{ISSUE_DETAIL}}", json.dumps(issue_detail, indent=2, ensure_ascii=False))
 
         parent_data = fetch_sub_issues(issue_id)
         prompt = prompt.replace("{{PLAN_DOCUMENTS}}", json.dumps(parent_data.get("documents", []), indent=2, ensure_ascii=False))
+
+        ref_docs = resolve_attachment_documents(issue_detail.get("attachments", []))
+        prompt = prompt.replace("{{REFERENCE_DOCUMENTS}}", json.dumps(ref_docs, indent=2, ensure_ascii=False) if ref_docs else "[]")
 
         prompt = prompt.replace("{{PR_DIFF}}", pr_diff(repo_path, issue_identifier))
 
@@ -148,6 +153,9 @@ def prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id, parent_id
         parent_data = fetch_sub_issues(issue_id)
         prompt = prompt.replace("{{PLAN_DOCUMENTS}}", json.dumps(parent_data.get("documents", []), indent=2, ensure_ascii=False))
 
+        ref_docs = resolve_attachment_documents(issue_detail.get("attachments", []))
+        prompt = prompt.replace("{{REFERENCE_DOCUMENTS}}", json.dumps(ref_docs, indent=2, ensure_ascii=False) if ref_docs else "[]")
+
         comments = fetch_issue_comments(issue_id)
         prompt = prompt.replace("{{REVIEW_COMMENTS}}", json.dumps(comments, indent=2, ensure_ascii=False))
 
@@ -158,6 +166,9 @@ def prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id, parent_id
         parent_data = fetch_sub_issues(issue_id)
         prompt = prompt.replace("{{PLAN_DOCUMENTS}}", json.dumps(parent_data.get("documents", []), indent=2, ensure_ascii=False))
 
+        ref_docs = resolve_attachment_documents(issue_detail.get("attachments", []))
+        prompt = prompt.replace("{{REFERENCE_DOCUMENTS}}", json.dumps(ref_docs, indent=2, ensure_ascii=False) if ref_docs else "[]")
+
     elif phase == PHASE_IMPLEMENTING:
         sub_detail = fetch_issue_detail(issue_id)
         prompt = prompt.replace("{{SUB_ISSUE_DETAIL}}", json.dumps(sub_detail, indent=2, ensure_ascii=False))
@@ -165,6 +176,8 @@ def prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id, parent_id
         prompt = prompt.replace("{{PARENT_ISSUE_DETAIL}}", json.dumps(parent_detail, indent=2, ensure_ascii=False))
         parent_data = fetch_sub_issues(parent_issue_id)
         prompt = prompt.replace("{{PLAN_DOCUMENTS}}", json.dumps(parent_data.get("documents", []), indent=2, ensure_ascii=False))
+        ref_docs = resolve_attachment_documents(parent_detail.get("attachments", []))
+        prompt = prompt.replace("{{REFERENCE_DOCUMENTS}}", json.dumps(ref_docs, indent=2, ensure_ascii=False) if ref_docs else "[]")
         sub_comments = fetch_issue_comments(issue_id)
         prompt = prompt.replace("{{SUB_ISSUE_COMMENTS}}", json.dumps(sub_comments, indent=2, ensure_ascii=False))
 
@@ -172,15 +185,15 @@ def prepare_prompt(phase, issue_id, issue_identifier, parent_issue_id, parent_id
 
 
 def setup_worktree(phase, repo, issue_identifier, parent_identifier, worktree_base, log_file, issue_id,
-                   session_id="", api_key=""):
+                   session_id="", api_key="", base_branch=""):
     worktree_dir = worktree_base / repo.name / issue_identifier
     worktree_dir.parent.mkdir(parents=True, exist_ok=True)
 
     if phase in (PHASE_PLANNING, PHASE_PLAN_REVIEW, PHASE_SUBISSUE_CREATION):
         if worktree_dir.exists():
             worktree_remove(str(repo), str(worktree_dir))
-        default_branch = detect_default_branch(str(repo))
-        ret = worktree_add(str(repo), str(worktree_dir), default_branch, detach=True)
+        ref = base_branch or detect_default_branch(str(repo))
+        ret = worktree_add(str(repo), str(worktree_dir), ref, detach=True)
         if ret.returncode != 0:
             mark_failed(issue_id, log_file,
                         reason=f"Failed to create worktree: {ret.stderr.strip()}",
@@ -189,15 +202,15 @@ def setup_worktree(phase, repo, issue_identifier, parent_identifier, worktree_ba
         return worktree_dir, worktree_dir
 
     if phase == PHASE_IMPLEMENTING:
+        default_ref = base_branch or detect_default_branch(str(repo))
         if parent_identifier and not branch_exists(str(repo), parent_identifier):
-            default_branch = detect_default_branch(str(repo))
-            create_branch(str(repo), parent_identifier, default_branch)
+            create_branch(str(repo), parent_identifier, default_ref)
 
         if worktree_dir.exists():
             worktree_remove(str(repo), str(worktree_dir))
 
-        base_branch = parent_identifier if parent_identifier else detect_default_branch(str(repo))
-        ret = worktree_add(str(repo), str(worktree_dir), base_branch, new_branch=issue_identifier)
+        impl_base = parent_identifier if parent_identifier else default_ref
+        ret = worktree_add(str(repo), str(worktree_dir), impl_base, new_branch=issue_identifier)
         if ret.returncode != 0:
             print(f"worktree add (new branch) failed: {ret.stderr.strip()}", file=sys.stderr)
             ret = worktree_add(str(repo), str(worktree_dir), issue_identifier)
@@ -305,7 +318,7 @@ def post_execute(phase, issue_id, issue_identifier, parent_issue_id, parent_iden
 
 def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
         parent_issue_id: str = "", parent_identifier: str = "",
-        session_id: str = ""):
+        session_id: str = "", base_branch: str = ""):
     env = load_env()
     api_key = get_api_key(env)
 
@@ -336,7 +349,8 @@ def run(phase: str, issue_id: str, issue_identifier: str, repo_path: str,
     work_dir, worktree_dir = setup_worktree(phase, repo, issue_identifier,
                                             parent_identifier, worktree_base,
                                             log_file, issue_id,
-                                            session_id=session_id, api_key=api_key)
+                                            session_id=session_id, api_key=api_key,
+                                            base_branch=base_branch)
 
     try:
         extra_write = [str(repo / ".git" / "worktrees")]
@@ -397,6 +411,8 @@ if __name__ == "__main__":
     parser.add_argument("parent_issue_id", nargs="?", default="")
     parser.add_argument("parent_identifier", nargs="?", default="")
     parser.add_argument("--session-id", default="")
+    parser.add_argument("--base-branch", default="")
     args = parser.parse_args()
     run(args.phase, args.issue_id, args.identifier, args.repo_path,
-        args.parent_issue_id, args.parent_identifier, args.session_id)
+        args.parent_issue_id, args.parent_identifier, args.session_id,
+        args.base_branch)

@@ -13,6 +13,11 @@ You are addressing review feedback on a pull request.
 {{PLAN_DOCUMENTS}}
 {/json}
 
+## Reference Documents
+```json
+{{REFERENCE_DOCUMENTS}}
+```
+
 ## PR Diff (current state)
 {{PR_DIFF}}
 
