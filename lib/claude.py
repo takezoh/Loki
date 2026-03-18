@@ -70,7 +70,13 @@ def setup_settings(work_dir: Path, *, phase: str = "",
         "Always commit and push without asking for confirmation. "
         "Code review happens on the PR, not here. "
         "Never end your turn with questions like \"コミットしますか？\" or \"Should I commit?\". "
-        "Just do it.\n"
+        "Just do it.\n\n"
+        "## Running tests\n\n"
+        "Always run tests in non-interactive mode. "
+        "Never use watch mode or commands that wait for interactive input.\n\n"
+        "- vitest: use `npx vitest run` (not `npx vitest`)\n"
+        "- jest: use `npx jest` (already non-interactive by default)\n"
+        "- general: pass `--watch=false` or `--watchAll=false` if needed\n"
     )
 
 
