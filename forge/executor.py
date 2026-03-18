@@ -31,7 +31,7 @@ PHASE_TIMEOUTS = {
     "subissue_creation": 15 * 60,
 }
 
-IDLE_TIMEOUT = 10 * 60
+IDLE_TIMEOUT = 3 * 60
 
 
 def resolve_config(phase: str, env: dict) -> dict:
